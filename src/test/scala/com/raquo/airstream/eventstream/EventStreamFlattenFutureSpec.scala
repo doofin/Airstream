@@ -1,6 +1,6 @@
 package com.raquo.airstream.eventstream
 
-import com.raquo.airstream.AsyncSpec
+import com.raquo.airstream.AsyncUnitSpec
 import com.raquo.airstream.core.Observer
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.features.FlattenStrategy.{ConcurrentFutureStrategy, OverwriteFutureStrategy, SwitchFutureStrategy}
@@ -10,7 +10,7 @@ import org.scalatest.Assertion
 import scala.collection.mutable
 import scala.concurrent.{Future, Promise}
 
-class EventStreamFlattenFutureSpec extends AsyncSpec {
+class EventStreamFlattenFutureSpec extends AsyncUnitSpec {
 
   it("EventStream.flatten(SwitchFutureStrategy)") {
 
@@ -185,7 +185,7 @@ class EventStreamFlattenFutureSpec extends AsyncSpec {
     val promise5 = makePromise()
 
     val futureBus = new EventBus[Future[Int]]()
-    val stream = futureBus.events.flatten(OverwriteFutureStrategy)
+    val stream: EventStream[Int] = futureBus.events.flatten(OverwriteFutureStrategy)
 
     stream.addObserver(obs)
 

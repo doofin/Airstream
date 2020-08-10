@@ -1,13 +1,14 @@
 package com.raquo.airstream.signal
 
+import com.raquo.airstream.UnitSpec
 import com.raquo.airstream.core.Observer
 import com.raquo.airstream.eventbus.EventBus
 import com.raquo.airstream.fixtures.{Calculation, Effect, TestableOwner}
-import org.scalatest.{FunSpec, Matchers}
 
 import scala.collection.mutable
+import scala.util.Success
 
-class SignalSpec extends FunSpec with Matchers {
+class SignalSpec extends UnitSpec {
 
   it("EventStream.toSignal creates a properly wired Signal") {
 
@@ -40,8 +41,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // When observer is added, it immediately gets the last evaluated current value
     // Note: Because signal had no observer when bus fired value `1`, that event was NOT used to compute new value.
-    //       This is expected. If this is undesirable to your case, use State instead of Signal.
-    signal.addObserver(signalObserver1)
+    val sub1 = signal.addObserver(signalObserver1)
 
     calculations shouldEqual mutable.Buffer(
       Calculation("map-signal", -1) // First time current value of this signal was needed, so it is now calculated
@@ -85,7 +85,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // When adding a new observer, it gets the signal's current value.
     // Here the current value has been updated by the previous event, and the signal remembers it.
-    signal.addObserver(signalObserver2)
+    val sub2 = signal.addObserver(signalObserver2)
 
     calculations shouldEqual mutable.Buffer() // Using cached calculation
     effects shouldEqual mutable.Buffer(
@@ -112,7 +112,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    signal.removeObserver(signalObserver1)
+    sub1.kill()
 
     bus.writer.onNext(4)
 
@@ -129,7 +129,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    signal.removeObserver(signalObserver2)
+    sub2.kill()
 
     bus.writer.onNext(5)
 
@@ -196,7 +196,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    changes.addObserver(changesObserver)
+    val subChanges1 = changes.addObserver(changesObserver)
 
     bus.writer.onNext(2)
 
@@ -216,7 +216,7 @@ class SignalSpec extends FunSpec with Matchers {
     // --
 
     // Adding observer to signal sends the last evaluated current value to it
-    signal.addObserver(signalObserver)
+    val subSignal = signal.addObserver(signalObserver)
 
     calculations shouldEqual mutable.Buffer()
     effects shouldEqual mutable.Buffer(
@@ -257,7 +257,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    changes.removeObserver(changesObserver)
+    subChanges1.kill()
 
     bus.writer.onNext(4)
 
@@ -274,15 +274,15 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    changes.addObserver(changesObserver)
+    val subChanges2 = changes.addObserver(changesObserver)
 
     calculations shouldEqual mutable.Buffer()
     effects shouldEqual mutable.Buffer()
 
     // --
 
-    changes.removeObserver(changesObserver)
-    signal.removeObserver(signalObserver)
+    subChanges2.kill()
+    subSignal.kill()
 
     bus.writer.onNext(5)
 
@@ -315,7 +315,7 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    signal.now() shouldBe -1
+    signal.tryNow() shouldBe Success(-1)
 
     calculations shouldEqual mutable.Buffer(
       Calculation("map-signal", -1)
@@ -352,7 +352,25 @@ class SignalSpec extends FunSpec with Matchers {
 
     // --
 
-    signal.now()
+    signal.tryNow()
+
+    calculations shouldEqual mutable.Buffer()
+    effects shouldEqual mutable.Buffer()
+
+    // --
+
+    signal.addObserver(Observer[Int](effects += Effect("signal-obs2", _)))
+
+    calculations shouldEqual mutable.Buffer()
+    effects shouldEqual mutable.Buffer(
+      Effect("signal-obs2", 20)
+    )
+
+    effects.clear()
+
+    // --
+
+    signal.tryNow()
 
     calculations shouldEqual mutable.Buffer()
     effects shouldEqual mutable.Buffer()

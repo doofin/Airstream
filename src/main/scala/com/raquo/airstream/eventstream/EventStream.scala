@@ -1,106 +1,198 @@
 package com.raquo.airstream.eventstream
 
-import com.raquo.airstream.core.{LazyObservable, MemoryObservable}
-import com.raquo.airstream.ownership.Owner
+import com.raquo.airstream.core.AirstreamError.ObserverError
+import com.raquo.airstream.core.{AirstreamError, Observable, Transaction}
+import com.raquo.airstream.features.{CombineObservable, Splittable}
 import com.raquo.airstream.signal.{FoldSignal, Signal, SignalFromEventStream}
-import com.raquo.airstream.state.{MapState, State}
 
 import scala.concurrent.Future
+import scala.util.{Failure, Success, Try}
 
-trait EventStream[+A] extends LazyObservable[A] {
+trait EventStream[+A] extends Observable[A] {
 
   override type Self[+T] = EventStream[T]
 
   override def map[B](project: A => B): EventStream[B] = {
-    new MapEventStream(this, project)
+    new MapEventStream(this, project, recover = None)
   }
 
-  /** `value` is passed by name, so it will be evaluated on every event.
-    * Use it to sample mutable values (e.g. myInput.ref.value in Laminar).
-    *
-    * See also: [[mapToValue]]
-    */
-  def mapTo[B](value: => B): EventStream[B] = {
-    new MapEventStream[A, B](this, _ => value)
-  }
-
-  /** `value` is evaluated only once, when this method is called.
-    *
-    * See also: [[mapTo]]
-    */
-  def mapToValue[B](value: B): EventStream[B] = {
-    new MapEventStream[A, B](this, _ => value)
-  }
-
+  /** @param passes Note: guarded against exceptions */
   def filter(passes: A => Boolean): EventStream[A] = {
-    new FilterEventStream(this, passes)
+    new FilterEventStream(parent = this, passes)
   }
 
+  def filterNot(predicate: A => Boolean): EventStream[A] = filter(!predicate(_))
+
+  /** @param pf Note: guarded against exceptions */
   def collect[B](pf: PartialFunction[A, B]): EventStream[B] = {
+    // @TODO[Performance] Use applyOrElse
     filter(pf.isDefinedAt).map(pf)
   }
 
-  def delay(intervalMillis: Int = 0): EventStream[A] = {
-    new DelayEventStream(parent = this, intervalMillis)
+  /** @param ms milliseconds of delay */
+  def delay(ms: Int = 0): EventStream[A] = {
+    new DelayEventStream(parent = this, ms)
   }
 
+  /** Make a stream that emits this stream's values but waits for `after` stream to emit first in a given transaction.
+    * You can use this for Signals too with `Signal.composeChanges` (see docs for more details)
+    */
+  def delaySync(after: EventStream[_]): EventStream[A] = {
+    new SyncDelayEventStream[A](parent = this, after = after)
+  }
+
+  /** See docs for [[ThrottleEventStream]] */
   def throttle(intervalMillis: Int): EventStream[A] = {
     ThrottleEventStream(parent = this, intervalMillis)
   }
 
+  /** See docs for [[DebounceEventStream]] */
   def debounce(delayFromLastEventMillis: Int): EventStream[A] = {
     new DebounceEventStream(parent = this, delayFromLastEventMillis)
   }
 
+  // @TODO[API] Should we introduce some kind of FoldError() wrapper?
+  /** @param fn Note: guarded against exceptions */
   def fold[B](initial: B)(fn: (B, A) => B): Signal[B] = {
+    foldRecover(
+      Success(initial)
+    )(
+      (currentValue, nextParentValue) => Try(fn(currentValue.get, nextParentValue.get))
+    )
+  }
+
+  // @TODO Naming
+  /** @param fn Note: Must not throw! */
+  def foldRecover[B](initial: Try[B])(fn: (Try[B], Try[A]) => Try[B]): Signal[B] = {
     new FoldSignal(parent = this, () => initial, fn)
   }
 
-  def toSignal[B >: A](initial: B): Signal[B] = {
+  @inline def startWith[B >: A](initial: => B): Signal[B] = toSignal(initial)
+
+  @inline def startWithTry[B >: A](initial: => Try[B]): Signal[B] = toSignalWithTry(initial)
+
+  @inline def startWithNone: Signal[Option[A]] = toWeakSignal
+
+  def toSignal[B >: A](initial: => B): Signal[B] = {
+    toSignalWithTry(Success(initial))
+  }
+
+  def toSignalWithTry[B >: A](initial: => Try[B]): Signal[B] = {
     new SignalFromEventStream(parent = this, initial)
   }
 
   def toWeakSignal: Signal[Option[A]] = {
-    new SignalFromEventStream(parent = this.map(Some(_)), initialValue = None)
-  }
-
-  def toState[B >: A](initial: B)(implicit owner: Owner): State[B] = {
-    new MapState[B, B](parent = this.toSignal(initial), project = identity, owner)
+    new SignalFromEventStream(parent = this.map(Some(_)), lazyInitialValue = Success(None))
   }
 
   def compose[B](operator: EventStream[A] => EventStream[B]): EventStream[B] = {
     operator(this)
   }
 
-  def combineWith[AA >: A, B](otherEventStream: EventStream[B]): CombineEventStream2[AA, B, (AA, B)] = {
-    new CombineEventStream2(
+  def combineWith[AA >: A, B](otherEventStream: EventStream[B]): EventStream[(AA, B)] = {
+    new CombineEventStream2[AA, B, (AA, B)](
       parent1 = this,
       parent2 = otherEventStream,
-      combinator = (_, _)
+      combinator = CombineObservable.guardedCombinator((_, _))
     )
   }
 
-  def withCurrentValueOf[B](memoryObservable: MemoryObservable[B]): EventStream[(A, B)] = {
+  def withCurrentValueOf[B](signal: Signal[B]): EventStream[(A, B)] = {
     new SampleCombineEventStream2[A, B, (A, B)](
       samplingStream = this,
-      sampledMemoryObservable = memoryObservable,
-      combinator = (_, _)
+      sampledSignal = signal,
+      combinator = CombineObservable.guardedCombinator((_, _))
     )
   }
 
-  def sample[B](memoryObservable: MemoryObservable[B]): EventStream[B] = {
+  def sample[B](signal: Signal[B]): EventStream[B] = {
     new SampleCombineEventStream2[A, B, B](
       samplingStream = this,
-      sampledMemoryObservable = memoryObservable,
-      combinator = (_, sampledValue) => sampledValue
+      sampledSignal = signal,
+      combinator = CombineObservable.guardedCombinator((_, sampledValue) => sampledValue)
+    )
+  }
+
+  /** See docs for [[MapEventStream]]
+    *
+    * @param pf Note: guarded against exceptions
+    */
+  override def recover[B >: A](pf: PartialFunction[Throwable, Option[B]]): Self[B] = {
+    new MapEventStream[A, B](
+      parent = this,
+      project = identity,
+      recover = Some(pf)
+    )
+  }
+
+  override def recoverToTry: EventStream[Try[A]] = map(Try(_)).recover[Try[A]] { case err => Some(Failure(err)) }
+
+  override protected[this] def fireValue(nextValue: A, transaction: Transaction): Unit = {
+    // Note: Removal of observers is always done at the end of a transaction, so the iteration here is safe
+
+    // === CAUTION ===
+    // The following logic must match Signal's fireTry! It is separated here for performance.
+
+    externalObservers.foreach { observer =>
+      try {
+        observer.onNext(nextValue)
+      } catch {
+        case err: Throwable => AirstreamError.sendUnhandledError(ObserverError(err))
+      }
+    }
+
+    internalObservers.foreach { observer =>
+      observer.onNext(nextValue, transaction)
+    }
+  }
+
+  override protected[this] def fireError(nextError: Throwable, transaction: Transaction): Unit = {
+    // Note: Removal of observers is always done at the end of a transaction, so the iteration here is safe
+
+    // === CAUTION ===
+    // The following logic must match Signal's fireTry! It is separated here for performance.
+
+    externalObservers.foreach { observer =>
+      observer.onError(nextError)
+    }
+
+    internalObservers.foreach { observer =>
+      observer.onError(nextError, transaction)
+    }
+  }
+
+  override protected[this] final def fireTry(nextValue: Try[A], transaction: Transaction): Unit = {
+    nextValue.fold(
+      fireError(_, transaction),
+      fireValue(_, transaction)
     )
   }
 }
 
 object EventStream {
 
-  def fromSeq[A](events: Seq[A]): EventStream[A] = {
-    new SeqEventStream[A](events)
+  /** Event stream that never emits anything */
+  val empty: EventStream[Nothing] = {
+    new SeqEventStream[Nothing](events = Nil, emitOnce = true)
+  }
+
+  /** @param emitOnce if true, the event will be emitted at most one time.
+    *                 If false, the event will be emitted every time the stream is started. */
+  @deprecated("Use `fromValue` or `empty` (see docs)", "0.4") // @TODO Are we sure we want to deprecate this?
+  def fromSeq[A](events: Seq[A], emitOnce: Boolean): EventStream[A] = {
+    new SeqEventStream[A](events.map(Success(_)), emitOnce)
+  }
+
+  /** @param emitOnce if true, the event will be emitted at most one time.
+    *                 If false, the event will be emitted every time the stream is started. */
+  def fromValue[A](event: A, emitOnce: Boolean): EventStream[A] = {
+    new SeqEventStream[A](List(Success(event)), emitOnce)
+  }
+
+  /** @param emitOnce if true, the event will be emitted at most one time.
+    *                 If false, the event will be emitted every time the stream is started. */
+  def fromTry[A](value: Try[A], emitOnce: Boolean): EventStream[A] = {
+    new SeqEventStream[A](List(value), emitOnce)
   }
 
   def fromFuture[A](future: Future[A]): EventStream[A] = {
@@ -120,5 +212,9 @@ object EventStream {
 
   implicit def toTuple2Stream[A, B](stream: EventStream[(A, B)]): Tuple2EventStream[A, B] = {
     new Tuple2EventStream(stream)
+  }
+
+  implicit def toSplittableStream[M[_], Input](stream: EventStream[M[Input]]): SplittableEventStream[M, Input] = {
+    new SplittableEventStream(stream)
   }
 }

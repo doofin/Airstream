@@ -1,8 +1,8 @@
 # Airstream
 
-[![Build Status](https://travis-ci.org/raquo/Airstream.svg?branch=master)](https://travis-ci.org/raquo/Airstream)
-[![Join the chat at https://gitter.im/Laminar_/Airstream](https://badges.gitter.im/Laminar_/Airstream.svg)](https://gitter.im/Laminar_/Airstream)
-![Maven Central](https://img.shields.io/maven-central/v/com.raquo/airstream_sjs0.6_2.12.svg)
+[![Build Status](https://circleci.com/gh/raquo/Airstream.svg?style=svg)](https://circleci.com/gh/raquo/Airstream)
+[![Join the chat at https://gitter.im/Laminar_/Lobby](https://badges.gitter.im/Laminar_/Lobby.svg)](https://gitter.im/Laminar_/Lobby)
+![Maven Central](https://img.shields.io/maven-central/v/com.raquo/airstream_sjs1_2.13.svg)
 
 Airstream is a small state propagation and streaming library. Primary differences from other solutions:
 
@@ -10,19 +10,18 @@ Airstream is a small state propagation and streaming library. Primary difference
 
 - **No [FRP glitches](#frp-glitches)** – neither observables themselves nor their observers will ever see inconsistent state within a transaction, at no runtime cost.
 
-- **One integrated system for three core types of observables** – Event streams alone are not a good enough abstraction for anything other than events.
-  - EventStream (lazy, no current value)
-  - Signal (lazy, has current value)
-  - State (eager, with current value)
+- **One integrated system for two core types of observables** – Event streams alone are not a good enough abstraction for anything other than events.
+  - EventStream for events (lazy, no current value)
+  - Signal for state (lazy, has current value)
 
-- **Small size, simple implementation** – easy to understand, easy to create custom streams. Does not bloat your Scala.js bundle size.
+- **Small size, simple implementation** – easy to understand, easy to create custom observables. Does not bloat your Scala.js bundle size.
 
-Airstream has a very generic design, but is primarily intended to serve as a reactive layer for unidirectional dataflow architecture as applied to hierarchical UI components. As such, it is not burdened by features that cause more problems than they solve in frontend development, such as backpressure and typed effects.
+Airstream has a very generic design, but is primarily intended to serve as a reactive layer for unidirectional dataflow architecture in UI components. As such, it is not burdened by features that cause more problems than they solve in frontend development, such as backpressure and typed effects.
 
-I created Airstream because I found existing solutions were not suitable for building reactive UI components. My original need for Airstream is to replace the old reactive layer of [Laminar](https://github.com/raquo/Laminar), but I'll be happy to see it used by other reactive UI libraries as well. Laminar in general is well modularized, and you can definitely reuse other bits and pieces of it, for example [Scala DOM Types](https://github.com/raquo/scala-dom-types).
+I created Airstream because I found existing solutions were not suitable for building reactive UI components. My original need for Airstream was to replace the previous reactive layer of [Laminar](https://github.com/raquo/Laminar), but I'll be happy to see it used by other reactive UI libraries as well. Another piece of Laminar you can reuse is [Scala DOM Types](https://github.com/raquo/scala-dom-types).
 
 ```
-"com.raquo" %%% "airstream" % "0.2"
+"com.raquo" %%% "airstream" % "0.9.1"  // Scala.js 1.x only
 ```
 
 
@@ -37,19 +36,19 @@ I created Airstream because I found existing solutions were not suitable for bui
     * [Stopping Observables](#stopping-observables)
     * [Memory Management Implications](#memory-management-implications)
   * [Signal](#signal)
-  * [State](#state)
-  * [Relationship between EventStream, Signal, and State](#relationship-between-eventstream-signal-and-state)
+    * [Getting Signal's current value](#getting-signals-current-value) 
+  * [Relationship between EventStream and Signal](#relationship-between-eventstream-and-signal)
   * [Observer](#observer)
   * [Ownership](#ownership)
     * [Ownership & Memory Management](#ownership--memory-management)
-      * [State Considerations](#state-considerations)
-      * [Subscription Considerations](#subscription-considerations)
+    * [Dynamic Ownership](#dynamic-ownership)
   * [Sources of Events](#sources-of-events)
     * [Creating Observables from Futures](#creating-observables-from-futures)
     * [EventStream.fromSeq](#eventstreamfromseq)
     * [EventStream.periodic](#eventstreamperiodic)
+    * [EventStream.empty](#eventstreamempty)
     * [EventBus](#eventbus)
-    * [Var-and-StateVar](#var-and-statevar)
+    * [Var](#var)
     * [Val](#val)
     * [Custom Observables](#custom-observables)
   * [FRP Glitches](#frp-glitches)
@@ -58,7 +57,11 @@ I created Airstream because I found existing solutions were not suitable for bui
     * [Transactions](#transactions)
     * [Merge Glitch-By-Design](#merge-glitch-by-design)
   * [Operators](#operators)
+    * [Compose Changes](#compose-changes)
+    * [Sync Delay](#sync-delay)
+    * [Splitting Observables](#splitting-observables)
     * [Flattening Observables](#flattening-observables)
+    * [Debugging Operators](#debugging-operators)
   * [Error Handling](#error-handling)
 * [Limitations](#limitations)
 * [My Related Projects](#my-related-projects)
@@ -67,42 +70,42 @@ I created Airstream because I found existing solutions were not suitable for bui
 
 ## Community
 
-* [Gitter](https://gitter.im/Laminar_/Airstream) for chat and random questions
+* [Gitter](https://gitter.im/Laminar_/Lobby) for chat and random questions (Airstream shares this room with [Laminar](https://github.com/raquo/Laminar))
 * [Github issues](https://github.com/raquo/Airstream/issues) for bugs, feature requests, and more in-depth discussions
 
 
 
 ## Documentation
 
-The provided documentation is a high level overview that occasionally dives into gritty details for things that are hard to figure on your own. It is not a full replacement to discovering available methods by reading the code (which is quite simple, and has comments) or simply with an IDE's autocomplete functionality.
+[API doc](https://javadoc.io/doc/com.raquo/airstream_sjs1_2.13/latest/com/raquo/airstream/index.html)
 
-This documentation is not an introduction to functional reactive programming. Instead, it explains the specifics of one library. I therefore assume basic knowledge of streams and observables here. If you need a primer on standard reactive programming, consider [this guide](https://gist.github.com/staltz/868e7e9bc2a7b8c1f754) by André Staltz or its [video adaptation](https://egghead.io/courses/introduction-to-reactive-programming). 
+The documentation provided below is a high level overview that occasionally dives into gritty details for things that are hard to figure out on your own. It is not a full replacement to discovering available methods by reading the code (which is quite simple, and has comments) or simply with an IDE's autocomplete functionality.
+
+This documentation explains how _Airstream_ works. Although I try to explain all required concepts and the rationale for doing things a certain way, if you need a primer on reactive programming using streams, consider [this guide](https://gist.github.com/staltz/868e7e9bc2a7b8c1f754) by André Staltz or its [video adaptation](https://egghead.io/courses/introduction-to-reactive-programming). 
 
 This documentation is intended to be read top to bottom, sections further down the line assume knowledge of concepts and behaviours introduced in earlier sections.
 
-Warning: there is some rambling involved. I will need to revise this at some point.
-
-For examples of Airstream code, see [laminar-examples](https://github.com/raquo/laminar-examples), [Laminar](https://github.com/raquo/Laminar) source code, as well as Airstream tests.
+For examples of Airstream usage, see [laminar-examples](https://github.com/raquo/laminar-examples), [Laminar](https://github.com/raquo/Laminar) source code, as well as Airstream tests.
 
 
 ### EventStream
 
 EventStream is a reactive variable that represents a stream of discrete events.
 
-EventStream has no concept of "current value". It is a stream of events, and there is no such thing as a "current event". Philosophically, an event has either happened or is yet to happen.
+EventStream has no concept of "current value". It is a stream of discrete events, and there is no such thing as a "current event".
 
-EventStream is a **lazy** observable. That means that it will not receive or process events unless it has at least one Observer (more on this below).
+EventStream is a **lazy** observable. That means that it will not receive or process events unless it has at least one Observer listening to it (more on this below).
 
-When you add an Observer to a stream, it starts to send events to the observer from now on. Different streams could potentially have custom code in them overriding this behaviour however. We strive for obviousness.
+Generally, when you add an Observer to a stream, it starts to send events to the observer from that point on.
 
-The result of calling `observable.addObserver(observer)(owner)` or `observable.foreach(onNext)(owner)` is a Subscription. To remove the observer you can call `observable.removeObserver(sameObserver)` or `subscription.kill()`. You can ignore the `owner` implicit param for now. Read about it later in the [Ownership](#ownership) section. 
+The result of calling `observable.addObserver(observer)(owner)` or `observable.foreach(onNext)(owner)` is a Subscription. To remove the observer manually, you can call `subscription.kill()`, but usually it's the `owner`'s job to do that. Hold that thought for now, read about owners later in the [Ownership](#ownership) section.
 
 
 ### Laziness
 
-Before exploring other kinds of observables, let's outline how exactly laziness works in Airstream.
+Before exploring Signals, the other kind of Observable, let's outline how exactly laziness works in Airstream. All Airstream Observables are lazy, but we will use EventStream-s here to make our explanation less abstract.
 
-A LazyObservable (an EventStream or a Signal, but we'll focus on streams for now) can have observers – both "external" observers that you add manually using `addObserver` or `foreach` methods, and InternalObserver-s. More on those soon.
+Every Observable has zero or more observers – both "external" observers that you add manually using `addObserver` or `foreach` methods, and InternalObserver-s. More on those soon.
 
 
 #### Starting Observables
@@ -138,7 +141,7 @@ For extra clarity, while the stream `rap` does depend on `qux`, `rap` itself has
 
 #### Stopping Observables
 
-Just like Observers can be added to streams, they can also be removed, e.g. with `removeObserver`. When you remove the last observer (internal or external) from a stream, it is said to be **stopped**. The same domino effect as when starting streams applies, except the `onStop` method recursively undoes everything that was done by `onStart` – instead of adding an InternalObserver to parent stream, we remove it, and if that causes the grand-parent stream to be stopped, we call its `onStop` method, and the chain continues upstream. 
+Just like Observers can be added to streams, they can also be removed, e.g. with `subscription.kill()`. When you remove the last observer (internal or external) from a stream, the stream is said to be **stopped**. The same domino effect as when starting streams applies, except the `onStop` method recursively undoes everything that was done by `onStart` – instead of adding an InternalObserver to parent stream, we remove it, and if that causes the grand-parent stream to be stopped, we call its `onStop` method, and the chain continues upstream. 
 
 When the dust settles, streams that are now without observers (internal or external) will be stopped, and those that still have observers will otherwise be untouched, except they will stop referencing the now-stopped observables in their lists of internal observers.
 
@@ -151,211 +154,216 @@ However, the parent/upstream observable has no references to its child/downstrea
 
 This has straightforward memory management implications: nothing in Airstream is keeping references to a *stopped* observable. So, if you don't have any of your own references to a stopped Observable, it will be garbage collected, as expected.  
 
-However, a started observable has additional references to it from:
+However, a _started_ observable has additional references to it from:
  1) The parent/upstream observable on which this observable depends (via the parent's list of internal observers)
- 2) The Subscription objects created by `addObserver` or `foreach` calls on this observable, if this observable has external observers
+ 2) The Subscription objects created by `addObserver` or `foreach` calls on this observable, if this observable has external observers. Those subscriptions are in turn referenced by their Owner-s (more on those later)
 
-Remember that if a given observable is started, its parent is also guaranteed to be started, and so on. This creates a potentially long chain of observables that typically terminate with external observers on the downstream end, and some kind of an event producer on the upstream end. All of these reference each other, directly or indirectly, and so will not be garbage collected unless there are no more references in your program to any observable or observer in this whole graph.
+Remember that if a given observable is started, its parent is also guaranteed to be started, and so on. This creates a potentially long chain of observables that typically terminate with external observers on the downstream end, and some kind of event producer on the upstream end. All of these reference each other, directly or indirectly, and so will not be garbage collected unless there are no more references in your program to _any_ observable or observer in this whole graph.
 
 Now imagine that in the chain of activated observables mentioned above the most downstream observable is related to a UI component that has since then been destroyed. You would want that now-irrelevant observable to be stopped in order for it to be garbage collected, since it's not needed anymore, but it will continue to run for as long as it has its observer. And if you forgot to remove that observer when you destroyed the UI component it related to, you got yourself a memory leak.  
 
-This is a common memory management pattern for most streaming libraries out there, so it should come as no surprise to anyone familiar with event streams.
+This is a common memory management pattern for almost all streaming libraries out there, so this should come as no surprise to anyone familiar with event streams.
 
-Some reactive UI libraries such as Outwatch give you a way to bind the lifecycle of subscriptions to the lifecycle of corresponding UI components, and that automatically kills the subscription (removes the observer) when the UI component it relates to is destroyed. However, the underlying streaming libraries that such UI libraries use have no concept of such binding, and so in those libraries you can manually call `stream.addObserver` and create a subscription that will not cease to exist together with the UI component that it conceptually relates to.
+Some reactive UI libraries such as Outwatch give you a way to bind the lifecycle of subscriptions to the lifecycle of corresponding UI components, and that automatically kills the subscription (removes the observer) when the UI component it relates to is destroyed. However, the underlying streaming libraries that such UI libraries use have no concept of such binding, and so in those libraries you can manually call `stream.addObserver` and create a subscription that will not be automatically killed when the UI component that it conceptually relates to is unmounted.
 
-What makes Airstream special is that it has a concept of ownership. When creating a leaky resource, e.g. when calling `addObserver`, you _have to_ also provide a reference to the Owner who will eventually kill the subscription. For example, that owner could be a UI component to which the subscription relates, and it could automatically kill all subscriptions that it owns when it is destroyed, allowing the now-irrelevant observables to be stopped and garbage collected. This is how [Laminar](https://github.com/raquo/Laminar)'s `ReactiveElement` works. For more details, see the [Ownership](#ownership) section.
+What makes Airstream special is a built-in concept of ownership. When creating a leaky resource, e.g. when calling `addObserver`, you _have to_ also provide a reference to an Owner who will eventually kill the subscription. For example, that owner could be a UI component to which the subscription relates, and it could automatically kill all subscriptions that it owns when it is destroyed, allowing the now-irrelevant observables to be stopped and garbage collected. This is essentially how [Laminar](https://github.com/raquo/Laminar)'s `ReactiveElement` works. For more details, see the [Ownership](#ownership) section.
 
 
 
 ### Signal
 
-Signal is a reactive variable that represents a time-varying value, or an accumulated value.
+Signal is a reactive variable that represents a time-varying value, or an accumulated value. In other words, "state".
 
 Similar to EventStream, Signal is **lazy**, so everything in the [Laziness](#laziness) section applies to Signals as well.
 
-Unlike EventStream, a Signal always has a current value. For instance, you could create a Signal by calling `val signal = eventStream.toSignal(initialValue)`. In that example, `signal`'s current value would first equal to `initialValue`, and then any time `eventStream` emits a value, `signal`'s current value would be updated to the emitted value, and then `signal` would emit this new current value.
+Unlike EventStream, a Signal always has a current value. For instance, you could create a Signal by calling `val signal = eventStream.startWith(initialValue)`. In that example, `signal`'s current value would first equal to `initialValue`, and then any time `eventStream` emits a value, `signal`'s current value would be updated to the emitted value, and then `signal` would emit this new current value.
 
-However, all of that would only happen if `signal` had any observers (because of [Laziness](#laziness)). If `signal` had no observers, its current value would be stuck at the last current value it saved while it had observers, or at `initialValue` if it never had observers.
-
-This laziness makes `Signal` unsuitable to represent certain types of state unless the presence of observers is guaranteed, because its current value might get inconsistent in the absence of observers. It is also the reason why you can't directly access a Signal's current value (there is no public `now()` method on it). You can use `stream.withCurrentValueOf(signal).map((lastStreamEvent, signalCurrentValue) => ???)` to access `signal`'s current value. The resulting stream will still be lazy, but this way the processing of `currentValue` is just as lazy as `currentValue` itself, so there is no risk of looking at a stale `currentValue`. If you don't need lastStreamEvent, use `stream.sample(signal).map(signalCurrentValue => ???)` instead. Note: both of these output streams will emit only when `stream` emits, as documented in the code.
+However, all of that would only happen if `signal` had one or more observers (because of [Laziness](#laziness)). If `signal` had no observers, its current value would be stuck at the last current value it saved while it had observers, or at `initialValue` if it _never_ had observers.
 
 Unlike EventStream, Signal only fires an event when its next value is different from its current value. The comparison is made using Scala's `==` operator.
 
-When adding an Observer to a Signal, it will immediately receive its current value, as well as any future values. If you don't want the observer to receive the current value, add an observer to the stream `signal.changes` instead.
+When adding an Observer to a Signal, the observer will immediately receive the signal's current value, as well as any future values. If you don't want the observer to receive the current value, observe the stream `signal.changes` instead.
 
-Note: Signal's initial value is evaluated lazily where it is not provided explicitly. For example:
+Note: Signal's initial value is evaluated lazily. For example:
 
 ```scala
 val fooStream: EventStream[Foo] = ???
-val fooSignal: Signal[Foo] = fooStream.toSignal(myFoo)
+val fooSignal: Signal[Foo] = fooStream.startWith(myFoo)
 val barSignal: Signal[Bar] = fooSignal.map(fooToBar)
 ```
 
 In this example, `barSignal`'s initial value would be equal to `fooToBar(myFoo)`, but that expression will not be evaluated until it is needed (i.e. until `barSignal` acquires an observer). And once evaluated, it will not be re-evaluated again.
 
+Similarly, `myFoo` expression will _not_ be evaluated immediately as it is passed by name. It will only be evaluated if and when it is needed (e.g. to pass it down to an observer of `barSignal`).    
+
+#### Getting Signal's current value
+
+Signal's laziness means that its current value might get stale / inconsistent in the absence of observers. Airstream therefore does not allow you to access a Signal's current value _without proving that it has observers_. 
+
+You can use `stream.withCurrentValueOf(signal).map((lastStreamEvent, signalCurrentValue) => ???)` to access `signal`'s current value. The resulting stream will still be lazy, but this way the processing of `currentValue` is just as lazy as `currentValue` itself, so there is no risk of looking at a stale `currentValue`.
+
+If you don't need lastStreamEvent, use `stream.sample(signal).map(signalCurrentValue => ???)` instead. Note: both of these output streams will emit only when `stream` emits, as documented in the code. If you want updates from signal to also trigger an event, look into the `combineWith` operator.
+
+If you want to get a Signal's current value without the complications of sampling, or even if you just want to make sure that a Signal is started, just call `observe` on it. That will add a noop observer to the signal, and return a `SignalViewer` instance which being a `StrictSignal`, does expose `now()` and `tryNow()` methods that safely provide you with its current value.
 
 
-### State
+### Relationship between EventStream and Signal
 
-As mentioned above, Signal's current value depends on whether it has observers or not. Therefore, Airstream also offers State – a reactive variable that is **eager** (strict), not lazy, and remembers its current value.
+Signals and EventStreams are distinct concepts with different use cases as described above, but both are Observables.
 
-State does not need observers to run. State calls its own `onStart` method which works just as described in the [Starting Observables](#starting-observables) section above).
+You can `fold(initialValue)(fn)` an EventStream into a Signal, or make a Signal directly with `stream.startWith(initialValue)`, or `stream.startWithNone` (which creates a "weak" signal, one that initially starts out with `None`, and has events wrapped in `Some`).
 
-Therefore, all the lazy observables that the State depends on get started automatically when such dependent state is initialized. For example:
-
-```scala
-val owner: Owner = ???
-val fooSignal: Signal[Foo] = ???
-val barSignal: Signal[Bar] = fooSignal.map(fooToBar)
-val barState: State[Bar] = barSignal.toState(owner) // mirrors barSignal
-val bazState: State[Baz] = barState.map(barToBaz)
-```
-
-In the above snippet both `fooSignal` and `barSignal` are stopped until `barState` is created on line 4, as they have no observers up to that point. When `barState` is initialized, its `onStart` method will recursively ensure that all upstream observables are started. So it adds `barState` as an internal observer on `barSignal`, which starts `barSignal`, and then barSignal's own `onStart` method similarly starts `fooSignal`.
-
-So, we can count on State running as soon as it gets created, regardless of whether state itself has any observers. This means we can use State to store, well, state and accumulated values, such as a list of received events. The state will keep calculating said list even if currently it has no observers.
-
-This is useful in situations where a parent component wants to maintain some state, but the only observers of such state are children components, of which there might be zero or more. Without eagerness, the state would go stale when there are temporarily zero children components because it would temporarily have no observers.
-
-Because State's current value is guaranteed to be consistent regardless of observers, it is available via the `state.now()` method. Using that method will reduce the need for combining multiple observables, if all you want is to sample some State's current value.
-
-Similar to Signal, State only fires an event when its next value is different from its current value.
-
-Unlike Signal, State's initial value is evaluated eagerly, but also only once.
-
-Similar to Signal, State's external observers receive its current value immediately on subscription. And State too exposes a `changes` stream that does not send current value on subscription.
-
-You might have noticed in the code snippet above that you need an `owner` to create State. We have previously seen this in the `addObserver(observer)(owner)` method signature, and the reason is the same – creating a State is essentially adding an observer* – a leaky operation that must be eventually undone. Read about that in the [Ownership](#ownership) section.
-
-\* _This does not mean that State serves the same purpose as external observers. Airstream does not care, but for proper hygiene don't put side effects into State or any other observable, those belong in observers._
-
-
-
-### Relationship between EventStream, Signal, and State
-
-A Signal is not an EventStream. Both are a LazyObservable (need observers to run).
-
-You can `fold(initialValue)(fn)` an EventStream into a Signal, or make a Signal directly with `stream.toSignal(initialValue)`, or `stream.toWeakSignal` (which initially starts out with `None`, and has events wrapped in `Some`).
-
-A State is not a Signal. Both are a MemoryObservable (remember their current value).
-
-You can get an EventStream of `changes` from a MemoryObservable (a Signal or a State) – this stream will re-emit whatever the parent signal/state emits (subject to laziness of the stream), minus the initial value.
-
-Observable is the lowest common denominator between EventStream, Signal and State.
-
-Observable has no `map` method because mapping over State is potentially a leaky operation (see [Ownership](#ownership). If you need to map over an Observable, make a LazyObservable out of it by calling `toLazy` on it first, and then `map` over that.
-
+You can get an EventStream of changes from a Signal – `signal.changes` – this stream will re-emit whatever the parent signal emits (subject to laziness of the stream), minus the Signal's initial value.
 
 
 ### Observer
 
-`Observer[A]` is a modest wrapper around an `onNext: A => Unit` callback that represents an _external_ observer (see sections above for the distinction with internal observers). Observers have no knowledge of what observables, if any, they're observing, they have no power to choose whether they want to observe an observable, etc.
+`Observer[A]` is a modest wrapper around an `onNext: A => Unit` callback that represents an _external_ observer (see sections above for the distinction with InternalObserver-s). Observers have no knowledge of which observables, if any, they're observing, they have no power to choose whether they want to observe an observable, etc.
 
-Observers are intended to contain side effects, and to trigger evaluation of lazy observables. Even though `State` observables run themselves without observers, you should still put your side effects inside observers to make your code more maintainable.
+Observers are intended to contain side effects, and to trigger evaluation of observables by their presence (remember, all Observables are lazy).
 
-You usually create observers with `Observer.apply` or `Observable.foreach`.
+You usually create observers with `Observer.apply` or `myObservable.foreach`. There are a few more methods on Observer that support [error handling](#error-handling).
 
-Observers have a couple convenience methods:
+Observers have a few convenience methods:
 
 `def contramap[B](project: B => A): Observer[B]` – This is useful for separation of concerns. For example your Ajax service might expose an `Observer[Request]`, but you don't want a simple `UserProfile` component to know about your Ajax implementation details (`Request`), so you can instead provide it with `requestObserver.contramap(makeUpdateRequest)` which is a `Observer[User]`.
 
-`def filter(passes: A => Boolean): Observer[A]` – useful if you have an `Observable` that you need to observe while filtering out some events (there is no `Observable.filter` method).
+`def filter(passes: A => Boolean): Observer[A]` – useful if you have an `Observable` that you need to observe while filtering out some events (there is no `Observable.filter` method, only `EventStream.filter`).
 
+`contracollect[B](pf: PartialFunction[B, A]): Observer[B]` – when you want to both `contramap` and `filter` at once.
 
-## Ownership
+`Observer.combine[A](observers: Observer[A])` creates an observer that triggers all of the observers provided to it. Unlike `Observer[A](nextValue => observers.foreach(_.onNext(nextValue)))`, the combined observer will also trigger its child observers in case of `.onError` (more about that in [Error Handling](#error-handling)).
+
+### Ownership
 
 Alright, this is it. By now you've read enough to have many questions about how ownership works. This assumes you've read all the docs above, but to recap the core problem that ownership solves:
 
-* Adding an `Observer` to a lazily evaluated `Observable` such as `EventStream` is a leaky operation. That is, this bond will survive even if the observable and the observer are both effectively unreachable to user code. This is because the observable's parent observables will keep a reference to it for as long as it has observers.
-* Therefore, you need to remember to remove observers that you added when the observers are no longer needed.
+* Adding an `Observer` to the lazily evaluated `Observable` is a leaky operation. That is, these resources will not be garbage collected even if the observable and the observer are both unreachable to _user_ code. This is because the observable's parent observables will keep an internal reference to it for as long as it has observers.
+* Therefore, without Ownership you would have needed to remember to remove observers that you added when the observers are no longer needed.
 * But doing that manually is insane, you will eventually forget and cause memory leaks and undesired behaviour. You should not need to take out your own garbage in a garbage collected language.
 
-If any of the above does not make sense, the rest of this section might be confusing. Make sure you at least understand the entirety of the [Laziness](#laziness) section.
+If any of the above does not make sense, the rest of this section might be confusing. Make sure you at least understand the entirety of the [Laziness](#laziness) section before proceeding.
 
 Without further ado:
 
-**Owned** is a resource that must be killed in order to release memory or prevent some other leak. In Airstream, both Subscription (the result of `observable.addObserver` call) and State extend Owned.
+**Subscription** is a resource that must be killed in order to release memory or prevent some other leak. You can get it by calling `observable.addObserver(observer)`, `writeBus.addSource(stream)`, or other similar methods that take an implicit `owner` param.
 
-Owned has an **Owner**. An Owner is an object that keeps track of its possessions (Owned-s) and knows when to kill them, and kills them when it's time. Airstream does not have any concrete owner classes, just the base trait. The reactive UI library or even yourself should implement those.
+Every Subscription has an **Owner**. An Owner is an object that keeps track of its subscriptions and knows when to kill them, and kills them _when it's time_ (determined in its sole discretion). Airstream does not offer any concrete Owner classes, just the base trait. Unless you use [Dynamic Ownership](#dynamic-ownership), you need to instantiate (and thus implement) your own Owner-s.
 
-For example, in my reactive UI library [Laminar](https://github.com/raquo/Laminar) ReactiveElement (an object representing a JS DOM Element) implements Owner. When a ReactiveElement is discarded (unmounted from the DOM), it kills all of its possessions, or more specifically – kills all its Owned-s, i.e. all the State and Subscriptions that were bound to it. 
+For example, until v0.8, my reactive UI library [Laminar](https://github.com/raquo/Laminar)'s ReactiveElement (an object representing a JS DOM Element) used to implement Owner. When a ReactiveElement was discarded (unmounted from the DOM), it would kill all of its `subscriptions`, i.e. all the Subscriptions that were bound to its lifetime. That would remove the observers that those subscriptions installed on the observables, stopping them if they have no other observers. Note: Laminar switched to [Dynamic Ownership](#dynamic-ownership) in v0.8 (more on that later).
 
-So, if you're writing a Laminar component and want it to have internal State, you would specify that component as the owner of said state. Then when the component is no longer needed, neither is its State, and the component conveniently kills the component's State, removing it as an observer from any upstream observables. And if any of those don't have any more observers, they would be stopped, and if they are not referenced elsewhere in your code, garbage collected.
+When creating a Subscription, you can perform whatever leaky operations you wanted, and just provide the `cleanup` method to perform any required cleanup.
 
-When implementing Owned, you can perform whatever leaky operations you wanted (e.g. in case of State, adding an observer to parent observable) in its constructor, and override the `onKilled` method to perform any required cleanup (e.g. remove said observer).
+Subscriptions are bound to a specific Owner upon creation of the Subscription, and this link stays unchanged for the lifetime of the Subscription.
 
-Owned-s are bound to a specific Owner upon creation, and this link stays unchanged for the lifetime of the Owned.
+Subscriptions are normally killed _by their Owner_, but you can also `.kill()` the subscription manually. The Owner will be notified about this via `owner.onKilledExternally(subscription)` so that it can drop the reference to the killed `subscription` from its list.
 
-Owned-s are normally killed by their Owner, but you can also override the `owned.kill` method to make it public. That will let you kill an Owned manually. The Owner will be notified about this via `owner.onKilledExternally(owned)` so that it can drop the reference to `owned` from its possessions.
+Killing the same Subscription more than once throws an exception, don't do it.
 
-An Owned can only be killed once. Killing the same Owned multiple times is undefined behaviour. Built-in Owner tracks its kills properly, make sure to preserve that behaviour if extending it. 
-
-### Ownership & Memory Management
-
-In broad terms, ownership solves memory leaks by tying the lifecycle of Owned-s to the lifecycle of an Owner. It helps you but makes the assumption that Owned-s are contained "within" their Owner, and that if you bring them out, you do it in a way that does not defeat the purpose of such containerization.
+Built-in Owner carefully tracks a list of its subscriptions, making sure to call the right hooks, and create and dispose the right references for memory management. If you extend Owner and change that logic, memory management of that owner and its subscriptions is on you. Generally you shouldn't need to mess with any of that logic though, just make sure to call `killSubscriptions` when it's time.
 
 
-#### State Considerations
+#### Ownership & Memory Management
 
-For example, let's say you have a parent component (Owner) that owns some State (Owned). You want to share this state to child components, of which there could be any number, and they would change over time. So let's say the parent component represents a list of child components in the UI.
+In broad terms, ownership solves memory leaks by tying the lifecycle of Subscriptions which would be otherwise hard to track manually to the lifecycle of an Owner which is expected to be tracked automatically by a UI library like Laminar.
 
-Now imagine that child components are just functions that accept parent's state:
+In practice, Airstream's memory management has no magic to it. It uses Javascript's standard garbage collection, same as the rest of your Scala.js code. You just need to understand what references what, and the documentation here explains it.
+
+For example, a Subscription created by `observable.addObserver` method keeps references to both the Observable and the Observer (via the function passed as its `cleanup` param). That means that if you're keeping a reference to a Subscription, you're also keeping those references. Given that the Subscription has a `kill` method that lets you remove the observer from the observable, the presence of these references should be obvious. So like I said – no magic, you just need to internalize the basic ideas of lazy observables, just like you've already internalized the basic ideas of classes and functions.
+
+
+#### Dynamic Ownership
+
+Dynamic Ownership is not a replacement for standard Ownership described above. Rather, it is a self-contained feature built on top of regular Ownership. No APIs in Airstream itself require Dynamic Ownership, it is intended to be consumed by the user or by other libraries depending on Airstream.
+
+The premise of Dynamic Ownership is the same as regular ownership: you can create DynamicSubscription-s owned by DynamicOwner, but here is what's different:
+
+Regular Subscription-s can never recover from being `kill()`-ed, whereas DynamicSubscription-s can be activated and deactivated and then activated again and so on, as many times as their DynamicOwner wants. For example:
 
 ```scala
-def childListItem(parentState: State[Foo]): ReactiveElement = {
-  val childState = parentState.map(blah)
-  renderElement(childState)
+val stream: EventStream[Int] = ???
+val observer: Observer[Int] = ???
+ 
+val dynOwner = new DynamicOwner
+ 
+val dynSub = DynamicSubscription(
+  dynOwner,
+  activate = (owner: Owner) => stream.addObserver(observer)(owner)
+)
+ 
+// Run dynSub's activate method and save the resulting non-dynamic Subscription
+dynOwner.activate()
+ 
+// Kill the regular Subscription that we saved 
+dynOwner.deactivate()
+ 
+// Run dynSub's activate method again, obtaining a new Subscription
+dynOwner.activate()
+ 
+// Kill the new Subscription that we saved 
+dynOwner.deactivate()
+```
+
+Every time a `DynamicOwner` is `activate()`-d, it creates a new `Owner`, and uses it to `activate` every `DynamicSubscription` that it owns. It saves the resulting non-dynamic `Subscription`, which the `DynamicOwner` later `kills()` when it's `deactivate()`-d.
+
+Now you can see how this integrates with regular ownership. Anything that requires a non-dynamic `Owner` produces a `Subscription`. So to create a `DynamicSubscription` you need to provide an `activate` method that does this. That could be a call to `addObserver`, `addSource`, etc.
+
+As a result, we have a dynamic owner that can add or remove `observer` from `stream` at any time. In Laminar starting with v0.8 every ReactiveElement has a `DynamicOwner`. When the element is mounted, that owner is activated, activating all dynamic subscriptions using a newly created non-dynamic owner. Then when the element is later unmounted, those subscriptions are deactivated, removing observers from observables, sources from event buses, etc.
+
+Previously in Laminar v0.7 every ReactiveElement used to extend the non-dynamic `Owner`, so once it was unmounted, all the subscriptions were killed forever, so if the user re-mounted that element, its subscriptions would not have come back to life. But now that Laminar uses Dynamic Ownership, you can re-mount previously unmounted elements, and their dynamic subscriptions will spring back to life.
+
+Note that a `DynamicSubscription` is not automatically activated upon creation. Its DynamicOwner controls its activation and deactivation. You can still permanently `kill()` a DynamicSubscription manually – it will be deactivated if it's currently active, and removed from its DynamicOwner.
+
+##### Dynamic Ownership & Memory Management
+
+I created Dynamic Ownership specifically to solve this long standing Laminar [memory management issue](https://github.com/raquo/Laminar/issues/33): if a non-dynamic Subscription is created when ReactiveElement is initialized, and killed when that element is unmounted, what happens to elements that get initialized but are never mounted into the DOM? That's right, their subscriptions are never killed and so they are essentially never garbage collected.
+
+Laminar v0.8 had to fix this by creating `Subscription`-s every time the element is mounted, and killing them when the element was unmounted. Long story short, Dynamic Ownership is exactly this, slightly generalized for wider use.
+
+There is really nothing special in Dynamic Ownership memory management. It's just a helper to create and destroy subscriptions repeatedly. In practice DynamicSubscription's activate method generally contains the same references that `Subscription`'s cleanup method would, so it's all the same considerations as before.
+
+##### Transferable Subscription
+
+What, a helper for subscription helpers? Yes, indeed. This one behaves like a `DynamicSubscription` that lets you transfer it from one active `DynamicOwner` to another active `DynamicOwner` without deactivating and re-activating the subscription.
+
+The API is simple:
+
+```scala
+class TransferableSubscription(
+  activate: () => Unit,
+  deactivate: () => Unit
+) { 
+  def setOwner(nextOwner: DynamicOwner): Unit
+  def clearOwner(): Unit
 }
 ```
 
-Can you spot the memory leak? Spoiler alert: for all intents and purposes we would expect the `childListItem` component to own `childState`. But did we do anything to make it so? No, `parentState.map` preserves the owner of the state, so the owner of `childState` is still the parent component.
-
-That is a problem because when an individual child component is discarded and unmounted, its `childState` will not be killed, because its owner, the parent component, is still alive and kicking. So every new child will create a new state object which will persist (not just bloat the memory – it will actually run!) until the parent component is discarded, and that might never even happen.
-
-**The violation that caused this memory leak to happen is that we allowed a factory of one component's Owned-s (`parentState.map`) to escape into another component.**
-
-This must be prevented with a simple rule of thumb: **do not let State escape its owner**. If you need to pass this state to a different component (owner), pass a Signal instead: `parentState.toSignal()`. Signal is a lazy observable and if the receiving component needs to create State out of it, it can do so with `signal.toState(newOwner)`:
-
-```scala
-def childListItem(parentSignal: Signal[Foo]): ReactiveElement = {
-  val childOwner: Owner = ???
-  val childState = parentSignal.map(blah).toState(childOwner)
-  renderElement(childState)
-}
-``` 
-
-
-#### Subscription Considerations
-
-Subscription does not expose a factory to create more Owned resources, but it does keep references to both the Observable and the Observer that it bound. That means that if you're keeping a reference to a Subscription, you're also keeping those references. This does not affect execution, but might affect garbage collection if you're keeping this reference when it's no longer needed.
-
-In practice this is not a problem because everyone knows not to keep references that they don't need. That's how programming works, it's not specific to Subscription or Airstream or even FRP in general.
+Note that you don't get access to `Owner` in activate. This is the tradeoff required to achieve this flexibility safely. `TransferableSubscription` is useful in very specific cases when you only care about continuity of active ownership, such as when moving an element from one mounted parent to another mounted parent in Laminar (you wouldn't expect Unmount / Mount events to fire in this case).
 
 
 
 ### Sources of Events
 
-We understand how events propagate through streams, signals and state, but the events in Airstream have to originate somewhere, right?
+We now understand how events propagate through streams and signals, but the events in Airstream have to _originate_ somewhere, right?
 
 
 #### Creating Observables from Futures
 
 `EventStream.fromFuture[A]` creates a stream that emits the value that the future completes with, when that happens.
 * The event is emitted asynchronously relative to the future's completion
-* Creating a stream from an already completed future results in a stream that emits no events (look into source code of this method for an easy way to get different behaviour)
+* Creating a stream from an already completed future results in a stream that emits no events (look into the source code of this method for an easy way to get different behaviour)
 
 `Signal.fromFuture[A]` creates a Signal of `Option[A]` that emits the value that the future completes with, when that happens, wrapped in `Some()`.
-* The event is emitted asynchronously relative to the future's completion
 * The initial value of this signal is equal to `Some(value)` if the future was already completed when the initial value was evaluated, or `None` otherwise.
+* If the Signal was created from a not yet completed future, the completion event is emitted asynchronously relative to when the future completes, because that is how `future.onComplete` works.
 * Unlike other signals, this signal keeps its current value from going stale even in the absence of observers
-
-`State.fromFuture[A]` – similar to `Signal.fromFuture` but produces a `State[Option[A]]` instead.
+* Being a StrictSignal, this signal exposes `now` and `tryNow` methods that provide its current value. However, note that there might be asynchronous delay between the completion of the Future and this signal's current value updating, as explained above.
 
 Note that all observables created from futures fire their events in a new transaction because they don't have a parent observable to be synchronous with.
 
 Now that you have an `Observable[Future[A]]`, you can flatten it into `Observable[A]` in a few ways, see [Flattening Observables](#flattening-observables).
 
-**Warning: As error handling is not yet implemented in Airstream (TODO), it can't handle failed futures at the moment.**
+A failed future results in an error (see [Error Handling](#error-handling)).
 
 #### EventStream.fromSeq
 
@@ -370,15 +378,34 @@ This method creates an event stream that synchronously emits events from the pro
 
 Each event is emitted in a separate transaction, meaning that the propagation of the previous event will fully complete before the propagation of the new event starts.
 
+**Note:** you should avoid using this factory, at least with multiple events. You generally shouldn't need to emit more than one event at the same time like this stream does. If you do, I think your model is likely abusing the concept of "event". This method is provided as a kludge until I can make a more confident determination.
+
+
+#### `EventStream.fromValue`
+
+Like `EventStream.fromSeq` (see right above), but only allows for a single event.
+
+
+#### `EventStream.fromTry`
+
+Like `EventStream.fromValue` (see right above), but also allows an error.
+
+This is provided as a kludge until it becomes more clear that this is not needed.
+
 
 #### EventStream.periodic
 
 TODO[API] – implement this.
 
 
+#### `EventStream.empty`
+
+A stream that never emits any events.
+
+
 #### EventBus
 
-`new EventBus[MyEvent]` is the general-purpose way to create a stream on which you can manually trigger events. EventBus exposes two properties:
+`new EventBus[MyEvent]` is the general-purpose way to create a stream on which you can manually trigger events. The resulting EventBus exposes two properties:
 
 **`events`** is the stream of events emitted by the EventBus.
 
@@ -386,49 +413,106 @@ TODO[API] – implement this.
 
 WriteBus extends Observer, so you can call `onNext(newEventValue)` on it, or pass it as an observer to another stream's `addObserver` method. This will cause the event bus to emit `newEventValue` in a new transaction.
 
-You can also call `addSource(otherStream)(owner)` on it, and the event bus will re-emit every event emitted by that stream. This is different from adding `writer` as an observer to `otherStream` because this will not cause otherStream to be started unless/until the EventBus's own stream is started (see [Laziness](#laziness)).
+You can also call `addSource(otherStream)(owner)` on it, and the event bus will re-emit every event emitted by that stream. This is somewhat similar to adding `writer` as an observer to `otherStream`, except this will not cause `otherStream` to be started unless/until the EventBus's own stream is started (see [Laziness](#laziness)).
 
-You've probably noticed that `addSource` takes `owner` as an implicit param – this is for memory management purposes. You would typically pass a WriteBus to a child component if you want the child to send any events to the parent. Thus, we want `addSource` to be automatically undone when said child is discarded (see [Ownership](#ownership)).
+You've probably noticed that `addSource` takes `owner` as an implicit param – this is for memory management purposes. You would typically pass a WriteBus to a child component if you want the child to send any events to the parent. Thus, we want `addSource` to be automatically undone when said child is discarded (see [Ownership](#ownership)), even if `writer.stream` is still being observed.
 
-An EventBus can have multiple sources simultaneously. In that case it will emit events from all of those sources in the order in which they come in. EventBus emits every event in a new transaction. Note that EventBus lets you create loops of Observables. It is up to you to make sure that a propagation of an event through such loops eventually terminates (via a proper `.filter(passes)` gate for example, or an implicit non-equality filter in State).
+An EventBus can have multiple sources simultaneously. In that case it will emit events from all of those sources in the order in which they come in. **EventBus always emits every event in a new [Transaction](#transactions).** Note that EventBus lets you create loops of Observables. It is up to you to make sure that a propagation of an event through such loops eventually terminates (via a proper `.filter(passes)` gate for example, or the implicit `==` equality filter in Signal).
 
-You can manually remove a previously added source stream using `removeSource` or by calling `kill()` on the EventBusSource object returned by the addSource call.
+You can manually remove a previously added source stream by calling `kill()` on the Subscription object returned by the addSource call.
 
-EventBus is particularly useful to get a single stream of events from a dynamic list of child components. You basically pass down the `writer` to every child component, and inside the child component you can add a source stream to it, or add it as an observer to some stream. Then when any given child component is discarded, its connection to the event bus will also be severed.
+EventBus is particularly useful to get a single stream of events from a dynamic list of child components. You basically pass down the `writer` to every child component, and inside the child component you can add a source stream to it, or add the `writer` as an observer to some stream. Then when any given child component is discarded (i.e. its owner kills its subscriptions), its connection to the event bus will also be severed.
 
-Typically you don't pass EventBus itself down to child components as it provides both read and write access. Instead, you pass down either the writer or the events, depending on what is needed. This security is the reason those are separate instances, by the way.
+Typically you don't pass EventBus itself down to child components as it provides both read and write access. Instead, you pass down either the writer or the event stream, depending on what is needed. This separation of concerns is the reason why EventBus doesn't just extend WriteBus and EventStream, by the way.
 
-WriteBus comes with a way to create new writers. Consider this:
+WriteBus comes with a few ways to create new writers. Consider this:
 
 ```scala
 val eventBus = new EventBus[Foo]
-val barWriter: WriteBus[Bar] = eventBus.writer.filterWriter(isGoodFoo).contramapWriter(barToFoo)
+val barWriter: WriteBus[Bar] = eventBus.writer
+  .filterWriter(isGoodFoo)
+  .contramapWriter(barToFoo)
 ```
 
 Now you can send `Bar` events to `barWriter`, and they will appear in `eventBus` processed with `barToFoo` then and filtered by `isGoodFoo`. This is useful when you want to get events from a child component, but the child component does not or should not know what `Foo` is. Generally if you don't need such separation of concerns, you can just `map`/`filter` the stream that's feeding the EventBus instead.
 
+WriteBus also offers a powerful `contracomposeWriter` method, which is like `contramapWriter` but with `compose` rather than `map` as the underlying transformation.
 
-#### Var and StateVar
+##### Batch EventBus Updates
 
-`Var(initialValue)` contains `.signal` that you can update manually. Similar to `EventBus`, it exposes `.writer` for updates.
+EventBus emits every event in a new transaction. However, similar to Var [batch updates](#batch-updates) you can call `EventBus.emit` or `EventBus.emitTry` to send values into several EventBus-es simultaneously, within the same transaction, to avoid [glitches](#frp-glitches) downstream.
 
-Similarly, `StateVar(initialValue)(owner)` contains `.state` that you can also update via `.writer`.
+```scala
+val valuesEventBus = new EventBus[Int]
+val labelsEventBus = new EventBus[String]
+ 
+EventBus.emit(
+  valuesEventBus -> 100,
+  labelsEventBus -> "users"
+)
+```
+
+
+#### Var
+
+Var is a reactive variable that you can update manually, and that exposes its current value at all times, as well as a `.signal` of its current value.
+
+Creating a Var is straightforward: `Var(initialValue)`, `Var.fromTry(tryValue)`.
+
+##### Simple Updates
+
+You can update a Var using one of its methods: `set(value)`, `setTry(Try(value))`, `update(currentValue => nextValue)`, `tryUpdate(currentValueTry => Try(nextValue))`. Note that `update` will throw if the Var's current value is an error (thus `tryUpdate`).
+
+Every Var also provides an Observer (`.writer`) that you can use where an Observer is expected, or if you want to provide your code with write-only access to a Var.
+
+##### Reading Values from a Var
+
+You can get the Var's current value using `now()` and `tryNow()`. Similar to `update`, `now` throws if the current value is an error. Var also exposes a `signal` of its values.
+
+Var follows **strict** (not lazy) execution – it will update its current value as instructed even if its signal has no observers. Unlike most other signals, the Var's signal is also strict – its current value matches the Var's current value at all times regardless of whether it has observers. Of course, any downstream observables that depend on the Var's signal are still lazy as usual.
+
+Being a `StrictSignal`, the signal also exposes `now` and `tryNow` methods, so if you need to provide your code with read-only access to a Var, sharing its signal only is the way to go. 
+
+##### Batch Updates
+
+Similar to EventBus, Var emits each event in a new [transaction](#transactions). However, similar to `WriteBus.emit`, you can put values into multiple Vars "at the same time", in the same transaction, to avoid [glitches](#frp-glitches) downstream. To do that, use the `set` / `setTry` / `update` / `tryUpdate` methods on the Var **companion object**. For example:
+
+```scala
+val value = Var(1)
+val isEven = Var(false)
+
+val sumSignal = x.signal.combineWith(y.signal)
+
+// batch updates!
+Var.set(x -> 2, y -> true)
+```
+
+With such a batched update, `sumSignal` will only emit `(1, false)` and `(2, true)`. It will **not** emit an inconsistent value like `(1, true)` or `(2, false)`.
+
+Batch updates are also atomic in terms of the following errors:
+* `update` throws if the Var's current value is an error
+* `tryUpdate` throws if the provided mod function throws
+
+Those are the only ways in which setting / updating a Var can throw an error. If any of those happen when batch-updating Var values, Airstream will throw an error, and all of the involved Vars will fail to update, keeping their current value.
+
+Remember that this atomicity guarantee only applies to failures which would have caused an individual `update` / `tryUpdate` call to throw. For example, if the `mod` function provided to `update` throws, `update` will not throw, it will instead successfully set that Var `Failure(err)`. 
+
 
 
 #### Val
 
-`Val(value)` is a Signal "constant" – a Signal that never changes its value. Unlike other Signals, its value is evaluated immediately upon creation, and it exposes a `now()` method to obtain it.
+`Val(value)` / `Val.fromTry(tryValue)` is a Signal "constant" – a Signal that never changes its value. Unlike other Signals, its value is evaluated immediately upon creation, and is exposed in public `now()` and `tryNow()` methods.
 
-Val is useful when a component wants to accept either a Signal or a constant value as input. You can just wrap your constant in a Val, and have the component accept a Signal instead.
+Val is useful when a component wants to accept either a Signal or a constant value as input. You can just wrap your constant in a Val, and make the component accept a `Signal` (or a `StrictSignal`) instead.
 
 
 #### Custom Observables
 
 EventBus is a very generic solution that should suit most needs, even if perhaps not very elegantly sometimes.
 
-You can create your own observables that emit events in their own unique way by wrapping or extending EventBus (easier) or extending Observable (more work and knowledge required)). For example, `Var` is implemented with EventBus.
+You can create your own observables that emit events in their own unique way by wrapping or extending EventBus (easier) or extending Observable (more work and knowledge required, but rewarded with better behavior)).
 
-Unfortunately I don't have enough time to describe how to create custom observables in detail right now. You will need to read the rest of the documentation and the source code – you will see how other observables such as MapStream or FilterStream are implemented. Airstream's source code should be easy to comprehend. It is clean, small (a bit more than 1K LoC with all the operators), and does not use complicated implicits or hardcore functional stuff.
+Unfortunately I don't have enough time to describe how to create custom observables in detail right now. You will need to read the rest of the documentation and the source code – you will see how other observables such as MapEventStream or FilterEventStream are implemented. Airstream's source code should be easy to comprehend. It is clean, small (a bit more than 1K LoC with all the operators), and does not use complicated implicits or hardcore functional stuff.
 
 
 
@@ -472,11 +556,11 @@ So this is how Airstream avoids the glitch in the diamond-combine case.
 
 Before we dive into other kinds of glitches (ha! you thought that was it!?), we need to know what a Transaction is.
 
-Philosophically, a Transaction in Airstream encapsulates a part of the propagation that 1) happens synchronously, and 2) contains no loops of observables. Within the confines of a single Transaction Airstream guarantees no glitches.
+Philosophically, a Transaction in Airstream encapsulates a part of the propagation that 1) happens **synchronously**, and 2) contains **no loops** of observables. Within the confines of a single Transaction Airstream guarantees **no glitches**.
 
 Async streams such as `stream.delay(500)` emit their events in a new transaction because Airstream executes transactions sequentially – and there is no sense in keeping other transactions blocked until some Promise or Future decides to resolve itself.
 
-Events that come from outside of Airstream – see [Event Sources](#event-sources) – each come in in a new Transaction, and those source observables have a `topoRank` of 1. I guess it makes sense why `EventStream.periodic` would behave that way, but why wouldn't `EventBus` reuse the transaction of whatever event came in from one of its source streams?
+Events that come from outside of Airstream – see [Sources of Events](#sources-of-events) – each come in a new Transaction, and those source observables have a `topoRank` of 1. I guess it makes sense why `EventStream.periodic` would behave that way, but why wouldn't `EventBus` reuse the transaction of whatever event came in from one of its source streams?
 
 And the answer is the limitation of our topological ranking approach: it does not work for loops of observables. A topoRank is a property of an observable, not of the event coming in. And an observable's topoRank is determined at its creation. EventBus on its creation has no sources, so its stream needs to emit its events in a new Transaction because there is no way to guarantee correct topological ranking to avoid glitches.
 
@@ -486,7 +570,7 @@ Apart from EventBus there is another way to create a loop – the `eventStream.f
 
 Loops necessarily break transactions as a tradeoff. Some other libraries do some kinds of dynamic topological sorting which is less predictable and whose performance worsens as your observables graph gets more complicated, but with Airstream there are no such costs. The only – and tiny – cost is when Airstream inserts a CombineObservable into the list of pending observables – that list is sorted by a static `topoRank` field, so it takes O(n) where n is the number of currently pending observables, which is usually zero or not much more than that.
 
-Lastly, keep in mind that "propagation" does not include external observers. If you call `observable.addObserver`, the observer will create a new transaction for every event that it receives. This is because observers are generally for side effects. Part of those effects might be emitting events, but you don't want that to be affected by other propagations going on, which would happen if we reused a transactions for observers. Philosophically, Observers should not know what they're observing (and they can observe multiple things at a time).
+Lastly, keep in mind that emitting events inside Observer-s will necessarily happen in a new transaction as you will need to use EventBus / Var APIs that create new transactions. Observers are generally intended for side effects. Those effects might be emitting other events, but in that case we consider them independent events, not a continuation of the current transaction. Philosophically, Observers should not know what they're observing (and they can observe multiple things at a time).
 
 
 #### Merge Glitch-By-Design
@@ -512,22 +596,162 @@ MergeEventStream uses the same pendingObservables mechanism as CombineObservable
 
 ### Operators
 
-Airstream supports standard observables operators like `map` / `filter` / etc. Some of the operators are available only on certain types of observables. For example, you currently can only `sample` an EventStream. This scarcity is sort of deliberate – we start out with the most basic / obvious operators and will expand into fancier ones as the need arises. However, some basic operators are also missing just because I didn't get to it yet (as opposed to by design), it's only for this reason there is no operator to combine more than two observables yet. 
+Airstream offers standard observables operators like `map` / `filter` / `compose` / `combineWith` etc. You will need to read the [API doc](https://javadoc.io/doc/com.raquo/airstream_sjs1_2.13/latest/com/raquo/airstream/index.html) or the actual code or use IDE autocompletion to discover those that aren't documented here or in other section of the Documentation. In the code, see `Observable`, `EventStream`, and `Signal` traits and their companion objects.
 
-There is currently no centralized documentation on operators – they are well annotated in the source code, in a few traits that extend `Observable`: `LazyObservable`, `MemoryObservable`, `EventStream`, `Signal`, `State`.
+Some of the more interesting / non-standard operators are documented below:
+
+
+#### Compose Changes
+
+Some operators are available only on Event Streams, not Signals. This is by design. For example, `filter` is not applicable to Signals because a Signal can't exist without a current value, so `signal.filter(_ => false)` would not make any sense. Similarly, you can't `delay(ms)` a signal because you can't delay its initial value.
+
+However, you can still use those operators with Signals, you just need to be explicit that you're applying them only to the Signal's changes, not to the initial value of the Signal:
+
+```scala
+val signal: Signal[Int] = ???
+val delayedSignal = signal.composeChanges(changes => changes.delay(1000)) // all updates delayed by one second
+val filteredSignal = signal.composeChanges(_.filter(_ % 2 == 0)) // only allows changes with even numbers (initial value can still be odd)
+```
+
+For more advanced transformations, `composeChangesAndInitial` operator lets you transform the Signal's initial value as well.
+
+
+#### Sync Delay
+
+Suppose you have two streams that emit in the same [Transaction](#transactions). Generally you don't know in which order they will emit, unless one of them depends on the other.
+
+If this matters to you, you can use `delaySync` operator to establish the desired order:
+
+```scala
+val stream1: EventStream[Int] = ???
+val stream2: EventStream[Int] = ???
+ 
+val stream1synced = stream1.delaySync(after = stream2)
+```
+
+`stream1synced` synchronously re-emits all values that `stream1` feeds into it. Its only guarantee is that if `stream1` and `stream2` emit in the same transaction, `stream1synced` will emit AFTER `stream2` (assuming it has observers of course, or it won't emit at all, as usual). Otherwise, `stream2` does not affect `stream1synced` in any way. Don't confuse this with the `sample` operator.
+
+Note: `delaySync` is better than a simple `delay` because it does not introduce an asynchronous boundary. `delaySync` does not use a `setTimeout` under the hood. In Airstream terms, `stream1synced` _synchronously depends_ on `stream1`, so all events in `stream1synced` fire in the same transaction as `stream1`, which is not the case with `stream1.delay(1000)` – those events would fire in a separate Transaction, and at an async delay.
+
+Under the hood `delaySync` uses the same `pendingObservables` machinery as `combinedWith` operator – see [Topological Rank](#topological-rank) docs for an explanation. 
+
+
+#### Splitting Observables
+
+Airstream offers powerful `split` and `splitToSignals` operators that split an observable of `M[Input]` into an observable of `M[Output]` based on `Input => Key`. The functionality of these operators is very generic, so we will explore its properties by diving into concrete examples.
+
+Note: These operators are available on qualifying streams and signals by means of `SplittableSignal` and `SplittableEventStream` value classes.
+
+##### Example 0: Tests
+
+This operator is particularly hard to put into words, at least on my first try. You might want to read the `split signal into signals` test in `SplitEventStreamSpec.scala`
+
+And hey, don't be a stranger, remember we have [Gitter](https://gitter.im/Laminar_/Lobby) for chat.
+
+##### Example 1: Latest Version of Foo by Id
+
+_If you are familiar with Laminar, consider skipping to the second example_
+
+Suppose you have an `Signal[List[Foo]]`, and you want to get `Signal[Map[String, Signal[Foo]]]` where the keys of the map are Foo ids, and the values of the map are signals of the latest version of a Foo with that id.
+
+The important part here is the desire to obtain individual signals of Foo by id, not to transform a `List` into a `Map`. Here is how we could do this:
+
+```scala
+case class Foo(id: String, version: Int)
+val inputSignal: Signal[List[Foo]] = ???
+ 
+val outputSignal: Signal[List[(String, Signal[Foo])]] = inputSignal.split(
+  key = _.id
+)(
+  project = (key, initialFoo, thisFooSignal) => (key, thisFooSignal)
+)
+ 
+val resultSignal: Signal[Map[String, Signal[Foo]]] = outputSignal.map(list => Map(list: _*))
+```
+
+Let's unpack all this.
+
+In this example our input is a signal of a list of Foo-s, and we `split` it into a signal of a list of `(fooId, fooSignal)` pairs. In each of those pairs, `fooSignal` is a signal that emits a new `Foo` whenever `inputSignal` emits a value that contains a Foo such that `foo.id == fooId`.
+
+So essentially each of the pairs in `outputSignal` contains a a foo id and a signal of the latest version of a Foo for this id, as found in `inputSignal`.
+
+Finally, in `resultSignal` we trivially transform `outputSignal` to convert a list to a map.
+
+##### Example 2: Dynamic Lists of Laminar Elements
+
+Suppose you want to render a list of `Foo`-s into a list of elements. You know how to render an individual `Foo` from its signal, but the list of Foo-s changes over time, and you want to avoid unnecessarily re-creating DOM elements.
+
+This is what you can do:
+
+```scala
+case class Foo(id: String, version: Int)
+   
+def renderFoo(fooId: String, initialFoo: Foo, fooSignal: Signal[Foo]): Div = {
+  div(
+    "foo id: " + fooId,
+    "first seen foo with this id: " + initialFoo.toString,
+    "last seen foo with this id: ",
+    child <-- fooSignal.map(_.toString)
+  )
+}
+ 
+val inputSignal: Signal[List[Foo]] = ???
+val outputSignal: Signal[List[Div]] = inputSignal.split(
+  key = _.id
+)(
+  project = renderFoo
+)
+```
+
+This works somewhat similarly to React.js keys, if you're familiar with that API:
+* As soon as a `Foo` with id="123" appears in inputSignal, we call `renderFoo` to render it. This gives us a `Div` element **that we will reuse** for all future versions of this foo.
+* We remember this `Div` element. Whenever `inputSignal` updates with a new version of the id="123" foo, the `fooSignal` in `renderFoo` is updated with this new version.
+* Similarly, when other foo-s are updated in `inputSignal` their updates are scoped to their own invocations of `renderFoo`. The grouping happens by `key`, which in our case is the id of Foo.
+* When the list emitted by `inputSignal` no longer contains a Foo with id="123", we remove its Div from the output and forget that we ever made it.
+* Thus the output signal contains a list of Div elements matching one-to-one to the Foo-s in the input signal list.
+
+So in essence, our `outputSignal` is broadly equivalent to `inputSignal.map(_.map(renderFoo))`, except that `renderFoo` requires **memoization** and **data** that simple mapping can't provide, thus the need for `split`.
+
+To drive the point home, let's see how we would likely do this without `split`:
+
+```scala
+case class Foo(id: String, version: Int)
+   
+def renderFoo(foo: Foo): Div = {
+  div(
+    "foo id: " + foo.id,
+    "last seen foo with this id: " + foo.toString
+  )
+}
+ 
+val inputSignal: Signal[List[Foo]] = ???
+val outputSignal: Signal[List[Div]] = inputSignal.map(_.map(renderFoo))
+```
+
+Same input and output types, but the behaviour is very different.
+
+* First, renderFoo is now called every time inputSignal updates, for every Foo. This means that we are recreating the entire list of DOM nodes from scratch on every update. This is very inefficient.
+  * In contrast, with `split`, we would only call `renderFoo` whenever we would see a new Foo with a previously unseen id in `inputSignal`, and the `child <-- ...` modifier would take care of updating existing elements as new versions foo came in.
+* Second, renderFoo no longer has access to `initialFoo` and `fooSignal`. It does not know anymore if the foo it's rendering has changed over time, it can't listen for those changes, etc.
+
 
 #### Flattening Observables
 
 Flattening generally refers to reducing the number of nested container layers. In Airstream the precise type definition can be found in the `FlattenStrategy` trait.
 
-The `def flatten[...](implicit strategy: FlattenStrategy[...])` method is available on all observables by means of `MetaObservable` implicit value class. All you need is to provide it an instance of `FlattenStrategy` that works for your specific observable's type. While you can easily implement your own flattening strategy, we have a few predefined in Airstream:
+Aside from the `def flatMap[...](implicit strategy: FlattenStrategy[...])` method on the `Observable` itself, a similar `flatten` method is available on all observables by means of `MetaObservable` implicit value class. All you need to use these methods is provide an instance of `FlattenStrategy` that works for your specific observable's type. While you can easily implement your own flattening strategy, we have a few predefined in Airstream:
 
 **`SwitchStreamStrategy`** flattens an `Observable[EventStream[A]]` into an `EventStream[A]`. The resulting stream will emit events from the latest stream emitted by the parent observable. So, as the parent observable emits a new stream, the resulting flattened stream _switches_ to imitating this last emitted stream.
 *  This strategy is the default for the parent observable type that it supports. So if you want to flatten an `Observable[EventStream[A]]` using this strategy, you don't need to pass it to `flatten` explicitly, it is provided implicitly.
 
+**`SwitchSignalStrategy`** flattens an `Signal[Signal[A]]` into a `Signal[A]`. Works similar to `SwitchStreamStrategy` but with Signal mechanics, tracking the last emitted value from the last signal emitted by the parent signal. Note: 
+* This strategy is the default for flattening `Signal[Signal[A]]`.
+* When switching to a new signal, the flattened signal emits the current value of the new signal (unless it's the same as the flattened signal's previous current value, as usual).
+* The flattened signal follows standard signal expectations – it's lazy. If you stop observing it, its current value might get stale even if the signal that it's tracking has other observers.
+
 **`SwitchFutureStrategy`** flattens an `Observable[Future[A]]` into an `EventStream[A]`. We first create an event stream from each emitted future, then flatten the result using `SwitchStreamStrategy`. So this ends up behaving very similarly, producing a stream that emits the value from the last future emitted by the parent observable, discarding the values of all previously emitted futures.
 
-To summarize, the above strategies result in a stream that imitates the latest stream / future emitted by the parent observable. So as soon as the parent observable emits a new future / stream, it stops listening for values produced by previously emitted futures / streams.
+To summarize, the above strategies result in an observable that imitates the latest stream / signal / future emitted by the parent observable. So as soon as the parent observable emits a new future / signal / stream, it stops listening for values produced by previously emitted futures / signals / streams.
 
 **`ConcurrentFutureStrategy`** also flattens an `Observable[Future[A]]` into an `EventStream[A]`. Whenever a future emitted by the parent observable completes, this stream emits that value, regardless of any other futures emitted by the parent.
 
@@ -536,38 +760,260 @@ To summarize, the above strategies result in a stream that imitates the latest s
 All built-in strategies result in observables that emit each event in a new transaction for hopefully obvious reasons. 
 
 `SwitchFutureStrategy`, `ConcurrentFutureStrategy`, and `OverwriteFutureStrategy` treat futures slightly differently than `EventStream.fromFuture`. Namely, if the parent observable emits a future that has already resolved, it will be treated as if the future has just resolved, i.e. its value will be emitted (subject to the strategy's normal logic). This is useful to avoid "swallowing" already resolved futures and enables easy handling of use cases such as cached or default responses. If this behaviour is undesirable you can easily define an alternative flattening strategy – it's a matter of flipping a single boolean in the relevant classes.
- 
+
+
+#### Debugging Operators
+
+Observable trait includes a few operators for debugging:
+* `debugLog` (log events)
+* `debugBreak` (invoke a JS debugger on every event)
+* `debugSpy` (call a function on every event)
+
+You can actually invoke the debugger (or logger) on a subset of events, like so:
+
+```scala
+val myIntStream: EventStream[Int] = ???
+val debuggedStream: EventStream[Int] = myIntStream.debugBreak(_ % 2 == 0) // break on even numbers only
+``` 
+
 
 
 ### Error Handling
 
+Airstream error handling is very different from conventional streaming libraries. Before diving into implementation details we first need to understand these differences and the reasons why such a departure from the norm is beneficial.
 
-TODO[API] Error handling is not yet implemented, but will be soon, it's a priority feature.
+
+#### Scala Exception Handling
+
+First, to clarify what kind of errors we're talking about here: this whole section is concerned with exceptions thrown by _user-provided_ code inside Airstream observables. For example, consider the `project` function in `stream.map(project)` throwing. Without special error handling capabilities in Airstream, such an exception would terminate the propagation of this stream and bubble up the call stack.
+
+However, this behaviour is vastly undesirable in FRP context because the caller (which would be the source of events) is not normally in a position to handle failures of child observables. For example, a DOM event listener that publishes DOM events onto a stream can't do much about some other component failing to process some of those events. So we need a different strategy to deal with errors in observables.
+
+
+#### Conventional Streaming Libraries
+
+Conventional streaming libraries basically don't propagate errors in observables. If your stream fails, it gets _completed_, meaning that it informs all of its dependant observables and observers that it will no longer produce events, and is now shutting down forever.
+
+If you don't want this outcome, you need to _recover_ from such an error by creating a stream that takes two inputs: this original stream, and a stream factory that returns a new stream that you will switch to if the original stream errors. 
+
+This model does not make any sense to me. Consider this chain of observables:
+
+```scala
+object OtherModule {
+  def doubled(parentStream: EventStream[Double]): EventStream[Double] = {
+    parentStream.map(num => num * 2)
+  }
+}
+ 
+// ----
+ 
+import OtherModule.doubled
+ 
+val stream1: EventStream[Double] = ???
+val invertedStream: EventStream[Double] = stream1.map(num => 1 / num)
+ 
+doubled(invertedStream).foreach(dom.console.log(_))
+```
+
+Inside `doubled`, there is nothing you can do to recover from an error in `parentStream`. You don't know what that stream does, so once it's broke, it's broke. You can't replace it with anything meaningful, just maybe some sentinel value to indicate failure.
+
+So essentially, this requires you to either manually guard every single user-provided input to every stream, or lose your sanity to crazy amounts of coupling. In this scenario the more likely outcome is that you'll just ignore error handling, and your program will stop working on an error that would have been recoverable if only it wasn't in your streaming code.
+
+Fundamentally, the problem here is conceptual: conventional streaming libraries see any exception in a stream as a terminal diagnosis for it.
+
+Yes, such an error could have made parts of your application state inconsistent, that is a legitimate problem. However, unconditionally killing parts of your program that depend on a stream is not a way to mitigate inconsistent state for the simple reason that _the streaming library has no idea which, if any, state became inconsistent_, therefore it has no idea whether allowing the error to propagate will _mitigate_ state breakage or make it _even worse_.
+
+
+#### Airstream's Approach
+
+Airstream aspires to replicate the feel of native exception handling in FRP. However, whereas in imperative code we _want_ Scala to propagate exceptions up the call stack, in Airstream we instead want to propagate errors in observables to their observers and dependent observables.
+
+Think about it this way: in imperative code, you call a function which can throw, and you can either handle it or decide to let your caller handle it, and so on, recursively. In Airstream, you make an observable that depends on another observable which can throw. So you can either handle it, or let any downstream observables or observers handle it.
+
+This FRP adaptation of classic exception handling is somewhat similar to the approach of Scala.rx, however since Airstream offers a unified reactive system, we have to adjust this basic idea to support event streams as well.
+
+To contrast our approach with conventional streaming libraries, where they see a failed _stream_, we only see a failed _value_, generally expecting the next emitted value to work fine. This is similar to plain Scala exceptions: if a function throws an exception, it does not suddenly become broken forever. You can call it again with perhaps a different value, and it will perhaps not fail that time. Yes, if such an exception produces invalid state, you as a programmer need to address it. Same in Airstream. We give you the tools (more on this below), you do the work, because you're the only one who knows _how_.
+
+We elaborate on the call stack analogy in the subsection [Errors Multiply](#errors-multiply) below.
+
+
+#### Error propagation
+
+Airstream does not complete or terminate observables on error. Instead, we essentially propagate error values the same way we propagate normal values. Each Observer and InternalObserver has `onNext(A)` and `onError(Throwable)` methods defined, so both observables and observers are capable of accepting error values as inputs.
+
+If you do not take special action, Airstream observables will generally (but not always, we'll get to that) pass through the errors to their observers untouched. Eventually the error will reach one or more external Observers.
+
+When an error reaches an external observer, its `onError` method will handle it. If you didn't specify `onError` (e.g. if you used the `Observer(onNext)` factory to create an observer) or if your `onError` partial function is not defined for a given error, Airstream will report this error as _unhandled_.
+
+You can get notified about unhandled errors by registering a callback using `AirstreamError.registerUnhandledErrorCallback(fn: Throwable => Unit)`. Similarly, you can unregister it using `AirstreamError.unregisterUnhandledErrorCallback(fn: Throwable => Unit)`.
+
+By default Airstream registers `AirstreamErrors.consoleErrorCallback` to log all errors to the console because there is nothing worse than silently swallowed unhandled errors. You can unregister it and/or register more callbacks, e.g. to terminate your program, or to report the error to a service like Sentry.
+
+Now let's dive deeper into each step of this process.
+
+##### User Input is Generally Guarded Against Exceptions
+
+Airstream guards from exceptions almost all user (developer) inputs that are used to build observables. For example, if the `project` function that you provided to `stream.map(project)` throws an exception, the resulting stream will emit an error, kick-starting this whole error handling process.
+
+However, user inputs that are supposed to return a `Try` are assumed to not throw. Various public class constructors that require the `new` keyword are generally not intended to be used directly, these can also have params that are not guarded against exceptions.
+
+For clarity, every Airstream method and constructor available to you has a Scaladoc comment reaffirming whether its parameters are guarded or not.
+
+##### Errors Do Not Affect Propagation
+
+When an error happens in an observable (assuming that it was guarded against, as it should always be, see above), the observable emits this error to all of its observers – internal and external – in the same manner that it would emit a value. Think of it as propagating a `Try[A]` value instead of just `A`.
+
+##### Errors in an Observer Do Not Affect Other Observers
+
+Similarly, and unlike conventional streaming libraries, if an error happened in an observer's `onNext` or `onError` callback, this error will be reported as _unhandled_, but it will not prevent other observers or the code immediately following this observer's definition from running.
+
+If you're concerned that the contents of your `onNext` / `onError` can fail and make your app state inconsistent, you do the same thing you've always done in this situation – `try` some code and `catch` the error, just keep it all inside the callback in question:
+
+```scala
+stream.addObserver(Observer(onNext = v =>
+  try { riskyFoo(v) }
+  catch { case err => recoverFromFooFail() }
+))
+```
+
+Remember, this is just for observers. We have a better way for observables, read on.
+
+##### Unhandled Errors Do Not Terminate The Program
+
+In Airstream, unhandled errors do not result in the program terminating. By default they are reported to the console. You can specify different or additional handlers such as `AirstreamError.debuggerErrorCallback` or even a custom handler that effectively terminates your program.
+
+Regardless of this seeming leniency, you should still handle all of your errors at some point before they become _unhandled_. In a good Airstream codebase every _unhandled_ error must be treated as a bug.
+
+##### Error Timing is Consistent
+
+Observables generally emit errors at the same time as they would have emitted a non-error value. For example, a `CombinedObservable` like `stream.combineWith(stream.map(foo))` will only emit a single value if `stream` emits a value (yes, Airstream deals with [FRP Glitches](#frp-glitches) for you). Similarly, it will only emit a single error if `stream` emits an error. However, that error will be wrapped in `CombinedError` because it needs to support the case when its parent observables simultaneously emit a different error.
+
+On the other hand, `MergeEventStream` does no such synchronization, it emits the errors similarly to how it emits non-error events – as they come, putting all but the first seen one in a new transaction.
+
+`DelayEventStream` re-emits incoming errors with the same delay that it uses for normal values.
+
+##### Event Streams Generally Forget Errors
+
+Similarly to how event streams generally do not keep track of their last emitted value, they also forget their last emitted error once they finish propagating it to their observers.
+
+##### Signals Remember Errors
+
+If a `Signal[A]` observable runs into an error that it doesn't handle itself, this error becomes its current state. `Signal`s' current state is actually `Try[A]`, not just `A`. 
+
+`StrictSignal[A]` has a public `now(): A` method that returns its current value. Calling it is equivalent to `tryNow().get`– it will throw if current state is a Failure.
+
+##### Errors Can Become Wrapped 
+
+Errors originating in an external Observer's onNext and onTry methods are wrapped in `ObserverError` and `ObserverErrorHandlingError` respectively before they are shipped off as unhandled errors.
+
+Errors originating in observables error handling code (`stream.recover(pf)`) are wrapped in `ErrorHandlingError`.
+
+You can always access the original errors on wrapped errors, and it will always provide you with a stack trace that includes the line where your code failed. Make sure to configure error reporting as well as Scala.js source maps to make use of this in fullOpt / production.
+
+##### Errors Multiply
+
+The same error might need to be handled multiple times to avoid becoming _unhandled_.
+
+It is perhaps counter-intuitive, but it's obvious in retrospect:
+
+```scala
+val upStream = ???
+val fooStream = upStream.map(foo)
+val barStream = upStream.map(bar)
+fooStream.foreach(dom.console.log("foo"))
+barStream.foreach(dom.console.log("bar"))
+```
+
+If `upStream` emits an error, both `fooStream` and `barStream` will emit an error – the same instance of it, actually. Then it will end up reported as _unhandled_ – twice!
+
+If we try to lean on our call stack analogy, it kinda breaks this time. Call stack is a stack, a linear data structure much like a list. An exception can only ever bubble to just one caller before bubbling up to its one and only caller. But in our case it feels like the bubbles are splitting into multiple parallel "streams".
+
+Instead, think of `fooStream` and `barStream` as independent function **calls** that both require the value of `upStream`, except by magic of FRP `upStream` is only executed once and its value (well, its exception in this case) is shared with both `fooStream` and `barStream` calls. If you call a broken function twice, you get two exceptions (identical ones, thanks to FRP) and thus two call stacks to propagate through.
+
+To be extra clear, if we add `.recoverIgnoreErrors` to the `fooStream` definition above, its observer will not receive the error coming from `upStream`, and will not report that error as _unhandled_. We did, after all, handle it, so that's fair. However, `barStream`'s observer would still receive that same error, and would still report it as _unhandled_. This is why handling errors in the right place is very important, just like handling exceptions is in plain Scala code.
+
+
+#### Recovering from Errors
+
+As we mentioned, generally observables propagate the errors they receive with no change. However, we can recover from errors, like this:
+
+```scala
+val signal0: Signal[A] = ???
+val signal1 = signal0.map(whatever)
+val signal2 = signal1.recover {
+  case MyException(foo) if foo.isGood => Some(foo) // emit foo
+  case MyException(foo) if !foo.isGood => None // skip this, emit nothing
+  case o: MyOtherException => throw new Exception("lolwat") // emit new error
+}
+```
+
+Importantly, this `recover` method does not affect `signal0`, or even `signal1`. Like any other operator it's just creating a new observable (`signal2`), except this one has a defined error handling strategy, so it will process any errors that come through it.
+
+When `signal0` emits an error, `signal2` will feed it to the partial function we provided to it. That function should normally emit either `Some(value)` to make `signal2` emit some `value`, or `None` to just skip this event altogether, as if it never happened. Yes, this latter case means that `signal2`'s current state would remain at whatever it was before this error came in, meanwhile `signal0`'s current state would be updated to the error (same for `signal1`).
+
+Any errors that this partial function is not defined for will pass through without being handled. If the partial function throws an error, it will be passed down wrapped in `ErrorHandlingError`.
+
+In addition to `recover`, Observables have a couple shorthand operators:
+
+**`recoverIgnoreErrors`** just skips all errors, emitting only good values. This is an FRP equivalent of an empty catch block.
+
+Note that you can't ignore an error in a `Signal`'s initial value, as it _needs_ a `Try[A]` value to be its state whenever it's started. Therefore, if the initial value is an error, and `recover` returns `None` while handling it (that's what `recoverIgnoreErrors` does), the initial value is set to the original error.
+
+**`recoverToTry`** transforms an `Observable[A]` into an `Observable[Try[A]]` that never emits an error (it emits `Failure(err)` as a value instead).
+
+You can use it to get a stream of errors as plain values, for example:
+
+```scala
+stream.recoverToTry.collect { case Failure(err) => err } // EventStream[Throwable]
+```
+
+
+#### Handling Errors Using Observers
+
+**`Observer.withRecover(onNext, onError: PartialFunction[Throwable, Unit])`** lets you handle some or all of the errors coming from upstream observables. Errors for which `onError` is not defined get reported as unhandled.
+
+**`Observer.ignoreErrors(onNext)`** is similar to `recoverIgnoreErrors` on observables – it simply silences any error it receives, so that it does not get reported as unhandled.
+
+
+#### Other Error Handling Considerations
+
+* **`fold`** operator is unable to proceed when encountering an error, so such an observable will enter a permanent error state if it encounters an error. You can not use the standard `recover` method to recover from this. You need to use `foldRecover` instead of `fold` to supply your error handling logic.
+
+* **`filter`** operator can't filter if its passes function fails, so it will pass through all errors that it receives, unfiltered. You can filter errors using `recover`, by returning `None`.
+
+* Remember that Signal's initial value is not evaluated until and unless it is needed. That is true even if the initial value would have been an error because obviously you can't know what it is without evaluating it. And if an error is not evaluated, then it can't possibly be reported anywhere because, well, it didn't actually happen. In practice this means that the initial value of a Signal whose only consumer is its `.changes` stream is completely ignored (because no one cares about it). @TODO[API] Should we reconsider this particular aspect of laziness? Either way, we should document the rationale for that some more.
+
+* This is an unfortunately flawed edge case in our design. We might address that eventually. Please let me know if you run into this problem.
+
+* Signals can also potentially face a similar issue, but the scenario allowing it is even more convoluted because a signal's initial value is evaluated lazily – only if and when its observers request it – so it can't really throw an error if no one is looking at it.
+
+
 
 
 
 ## Limitations
 
-* Currently Airstream only runs on Scala.js because its primary intended use case is unidirectional dataflow architecture on the frontend. However, its design is very generic, and it is definitely possible to make Airstream work on JVM, but that is complicated by 1) JVM's multithreaded environment, 2) Airstream using efficient JS-specific data structures such as js.Array that do not exist on the JVM, and 3) me having limited time, and no personal need for Airstream on the JVM. Those are solvable.
-* Airstream has no concept of observables "completing". If you would like to make a case for this feature, please file an issue on github.
+* Airstream only runs on Scala.js because its primary intended use case is unidirectional dataflow architecture on the frontend. I have no plans to make it run on the JVM. It would require too much of my time and too much compromise, complicating the API to support a completely different environment and use cases. 
+* Airstream has no concept of observables "completing". Personally I don't think this is a limitation, but I can see it being viewed as such. See [Issue #23](https://github.com/raquo/Airstream/issues/23).
 
 
 ## My Related Projects
 
 - [Laminar](https://github.com/raquo/Laminar) – Efficient reactive UI library for Scala.js that uses Airstream
+- [Waypoint](https://github.com/raquo/Waypoint) – Efficient router for Laminar made with Airstream
 - [XStream.scala](https://github.com/raquo/XStream.scala) – streaming library used by Laminar before Airstream
 
 Other building blocks of Laminar:
 
 - [Scala DOM Types](https://github.com/raquo/scala-dom-types) – Type definitions that we use for all the HTML tags, attributes, properties, and styles
-- [Scala DOM Builder](https://github.com/raquo/scala-dom-builder) – Low-level Scala & Scala.js library for building and manipulating DOM trees
+- [Scala DOM Builder](https://github.com/raquo/scala-dom-builder) – Low-level Scala & Scala.js library for building and manipulating DOM trees that Laminar used before v0.8
 - [Scala DOM TestUtils](https://github.com/raquo/scala-dom-testutils) – Test that your Javascript DOM nodes match your expectations
 
 
 
 ## Author
 
-Nikita Gazarov – [raquo.com](http://raquo.com)
+Nikita Gazarov – [@raquo](https://twitter.com/raquo)
 
 
 

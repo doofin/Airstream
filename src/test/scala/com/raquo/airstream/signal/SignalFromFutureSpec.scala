@@ -1,6 +1,6 @@
 package com.raquo.airstream.signal
 
-import com.raquo.airstream.AsyncSpec
+import com.raquo.airstream.AsyncUnitSpec
 import com.raquo.airstream.core.Observer
 import com.raquo.airstream.fixtures.{Calculation, Effect, TestableOwner}
 import org.scalatest.{Assertion, BeforeAndAfter}
@@ -8,7 +8,7 @@ import org.scalatest.{Assertion, BeforeAndAfter}
 import scala.collection.mutable
 import scala.concurrent.Promise
 
-class SignalFromFutureSpec extends AsyncSpec with BeforeAndAfter {
+class SignalFromFutureSpec extends AsyncUnitSpec with BeforeAndAfter {
 
   implicit val owner = new TestableOwner
 
@@ -32,7 +32,7 @@ class SignalFromFutureSpec extends AsyncSpec with BeforeAndAfter {
 
 
   before {
-    owner.killPossessions()
+    owner.killSubscriptions()
     clearLogs()
   }
 
@@ -111,5 +111,30 @@ class SignalFromFutureSpec extends AsyncSpec with BeforeAndAfter {
         }
       }
     }
+  }
+
+  it("exposes current value even without observers (unresolved future)") {
+    val promise = makePromise()
+    val signal = Signal.fromFuture(promise.future) // Don't use `makeSignal` here, we need the _original_, strict signal
+
+    assert(signal.now() == None)
+
+    promise.success(100)
+
+    // @TODO[API] Well, this here is not very desirable, but I don't see a way around it
+    assert(signal.now() == None)
+
+    delay {
+      assert(signal.now() == Some(100))
+    }
+  }
+
+  it("exposes current value even without observers (resolved future)") {
+    val promise = makePromise()
+    promise.success(100)
+
+    val signal = Signal.fromFuture(promise.future) // Don't use `makeSignal` here, we need the _original_, strict signal
+
+    assert(signal.now() == Some(100))
   }
 }

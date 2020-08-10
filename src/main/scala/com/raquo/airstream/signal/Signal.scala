@@ -1,50 +1,113 @@
 package com.raquo.airstream.signal
 
-import com.raquo.airstream.core.{LazyObservable, MemoryObservable}
+import com.raquo.airstream.core.{AirstreamError, Observable, Observer, Transaction}
+import com.raquo.airstream.eventstream.{EventStream, MapEventStream}
+import com.raquo.airstream.features.CombineObservable
 import com.raquo.airstream.ownership.Owner
-import com.raquo.airstream.state.{MapState, State}
 
 import scala.concurrent.Future
 import scala.scalajs.js
+import scala.util.{Failure, Success, Try}
 
-// @TODO[Integrity] Careful with multiple inheritance & addObserver here
-/** Signal is a lazy observable with a current value */
-trait Signal[+A] extends MemoryObservable[A] with LazyObservable[A] {
+/** Signal is an Observable with a current value. */
+trait Signal[+A] extends Observable[A] {
 
   override type Self[+T] = Signal[T]
 
-  protected[this] var maybeLastSeenCurrentValue: js.UndefOr[A] = js.undefined
+  /** Evaluate initial value of this [[Signal]].
+    * This method must only be called once, when this value is first needed.
+    * You should override this method as `def` (no `val` or lazy val) to avoid
+    * holding a reference to the initial value beyond the duration of its relevance.
+    */
+  // @TODO[Integrity] ^^^ Does this memory management advice even hold water?
+  protected[this] def initialValue: Try[A]
 
-  def toState(implicit owner: Owner): State[A] = {
-    new MapState[A, A](parent = this, project = identity, owner)
-  }
+  protected[this] var maybeLastSeenCurrentValue: js.UndefOr[Try[A]] = js.undefined
 
+  /** @param project Note: guarded against exceptions */
   override def map[B](project: A => B): Signal[B] = {
-    new MapSignal(parent = this, project)
+    new MapSignal(parent = this, project, recover = None)
   }
 
+  /** @param operator Note: Must not throw! */
   def compose[B](operator: Signal[A] => Signal[B]): Signal[B] = {
     operator(this)
   }
 
-  def combineWith[AA >: A, B](otherSignal: Signal[B]): CombineSignal2[AA, B, (AA, B)] = {
-    new CombineSignal2(
+  /** @param operator Note: Must not throw! */
+  def composeChanges[AA >: A](
+    operator: EventStream[A] => EventStream[AA]
+  ): Signal[AA] = {
+    composeChangesAndInitial(operator, initialOperator = identity)
+  }
+
+  /** @param operator Note: Must not throw!
+    * @param initialOperator Note: Must not throw!
+    */
+  def composeChangesAndInitial[B](
+    operator: EventStream[A] => EventStream[B],
+    initialOperator: Try[A] => Try[B]
+  ): Signal[B] = {
+    operator(changes).toSignalWithTry(initialOperator(tryNow()))
+  }
+
+  def combineWith[AA >: A, B](otherSignal: Signal[B]): Signal[(AA, B)] = {
+    new CombineSignal2[AA, B, (AA, B)](
       parent1 = this,
       parent2 = otherSignal,
-      combinator = (_, _)
+      combinator = CombineObservable.guardedCombinator((_, _))
     )
   }
 
+  def changes: EventStream[A] = new MapEventStream[A, A](parent = this, project = identity, recover = None)
+
+  /**
+    * @param makeInitial Note: guarded against exceptions
+    * @param fn Note: guarded against exceptions
+    */
   def fold[B](makeInitial: A => B)(fn: (B, A) => B): Signal[B] = {
+    foldRecover(
+      parentInitial => parentInitial.map(makeInitial)
+    )(
+      (currentValue, nextParentValue) => Try(fn(currentValue.get, nextParentValue.get))
+    )
+  }
+
+  // @TODO[Naming]
+  /**
+    * @param makeInitial currentParentValue => initialValue   Note: must not throw
+    * @param fn (currentValue, nextParentValue) => nextValue
+    * @return
+    */
+  def foldRecover[B](makeInitial: Try[A] => Try[B])(fn: (Try[B], Try[A]) => Try[B]): Signal[B] = {
     new FoldSignal(
       parent = this,
-      makeInitialValue = () => makeInitial(now()),
+      makeInitialValue = () => makeInitial(tryNow()),
       fn
     )
   }
 
+  /** @param pf Note: guarded against exceptions */
+  override def recover[B >: A](pf: PartialFunction[Throwable, Option[B]]): Signal[B] = {
+    new MapSignal[A, B](
+      this,
+      project = identity,
+      recover = Some(pf)
+    )
+  }
+
+  override def recoverToTry: Signal[Try[A]] = map(Try(_)).recover[Try[A]] { case err => Some(Failure(err)) }
+
+  /** Add a noop observer to this signal to ensure that it's started.
+    * This lets you access .now and .tryNow on the resulting StrictSignal.
+    *
+    * You can use `myStream.toWeakSignal.observe` to read the last emitted
+    * value from event streams just as well.
+    */
+  def observe(implicit owner: Owner): SignalViewer[A] = new SignalViewer(this, owner)
+
   /** Initial value is only evaluated if/when needed (when there are observers) */
-  override protected[airstream] def now(): A = {
+  protected[airstream] def tryNow(): Try[A] = {
     maybeLastSeenCurrentValue.getOrElse {
       val currentValue = initialValue
       setCurrentValue(currentValue)
@@ -52,7 +115,13 @@ trait Signal[+A] extends MemoryObservable[A] with LazyObservable[A] {
     }
   }
 
-  override protected[this] def setCurrentValue(newValue: A): Unit = {
+  /** See comment for [[tryNow]] right above
+    *
+    * @throws Exception if current value is an error
+    */
+  protected[airstream] def now(): A = tryNow().get
+
+  protected[this] def setCurrentValue(newValue: Try[A]): Unit = {
     maybeLastSeenCurrentValue = js.defined(newValue)
   }
 
@@ -64,8 +133,56 @@ trait Signal[+A] extends MemoryObservable[A] with LazyObservable[A] {
     * because Signal needs to know when its current value has changed.
     */
   override protected[this] def onStart(): Unit = {
-    now() // trigger setCurrentValue if we didn't initialize this before
+    tryNow() // trigger setCurrentValue if we didn't initialize this before
     super.onStart()
+  }
+
+  // @TODO[API] Use pattern match instead when isInstanceOf performance is fixed: https://github.com/scala-js/scala-js/issues/2066
+  override protected def onAddedExternalObserver(observer: Observer[A]): Unit = {
+    super.onAddedExternalObserver(observer)
+    observer.onTry(tryNow()) // send current value immediately
+  }
+
+  override protected[this] final def fireValue(nextValue: A, transaction: Transaction): Unit = {
+    fireTry(Success(nextValue), transaction)
+  }
+
+  override protected[this] final def fireError(nextError: Throwable, transaction: Transaction): Unit = {
+    fireTry(Failure(nextError), transaction)
+  }
+
+  /** Signal propagates only if its value has changed */
+  override protected[this] def fireTry(nextValue: Try[A], transaction: Transaction): Unit = {
+    // @TODO[API] It is rather curious/unintuitive that firing external observers first seems to make more sense. Think about it some more.
+    // @TODO[Performance] This might be suboptimal for some data structures (e.g. big maps). Document this along with workarounds.
+    if (tryNow() != nextValue) {
+      setCurrentValue(nextValue)
+
+      // === CAUTION ===
+      // The following logic must match EventStream's fireValue / fireError! It is separated here for performance.
+
+      val isError = nextValue.isFailure
+      var errorReported = false
+
+      externalObservers.foreach { observer =>
+        observer.onTry(nextValue)
+        if (isError && !errorReported) errorReported = true
+      }
+
+      internalObservers.foreach { observer =>
+        observer.onTry(nextValue, transaction)
+        if (isError && !errorReported) errorReported = true
+      }
+
+      // This will only ever happen for special Signals that maintain their current value even without observers.
+      // Currently we only have one kind of such signal: StrictSignal.
+      //
+      // We want to report unhandled errors on such signals if they have no observers (including internal observers)
+      // because if we don't, the error will not be reported anywhere, and I think we would usually want it.
+      if (isError && !errorReported) {
+        nextValue.fold(AirstreamError.sendUnhandledError, identity)
+      }
+    }
   }
 }
 
@@ -77,5 +194,9 @@ object Signal {
 
   implicit def toTuple2Signal[A, B](signal: Signal[(A, B)]): Tuple2Signal[A, B] = {
     new Tuple2Signal(signal)
+  }
+
+  implicit def toSplittableSignal[M[_], Input](signal: Signal[M[Input]]): SplittableSignal[M, Input] = {
+    new SplittableSignal(signal)
   }
 }
